@@ -42,3 +42,6 @@ Thumbs.db
 # Build artifacts
 dist/
 bin/
+
+# Generated provider SDKs (keep README.md)
+providers/*/

@@ -13,6 +13,10 @@ pulumi-dart/
 ├── cmd/pulumi-language-dart/ # Go language host plugin
 ├── pkg/codegen/dart/         # Dart code generator for SDK generation
 ├── proto/                    # Pulumi proto files
+├── providers/                # Generated provider SDKs
+│   ├── pulumi_random/        # Random provider SDK
+│   ├── pulumi_aws/           # AWS provider SDK (future)
+│   └── pulumi_gcp/           # GCP provider SDK (future)
 ├── sdk/dart/                 # Dart SDK package
 │   ├── lib/src/proto/        # Generated gRPC/protobuf code
 │   └── test/                 # SDK tests
@@ -136,11 +140,12 @@ go build -o pulumi-language-dart .
 Once the language host is built and installed, you can generate Dart SDKs for any Pulumi provider:
 
 ```bash
-# Generate Dart SDK for pulumi-random
-pulumi package gen-sdk --language dart pulumi-random
+# Using the helper script (recommended)
+./scripts/gen-provider.sh pulumi-random
+./scripts/gen-provider.sh pulumi-aws 6.0.0
 
-# Generate Dart SDK for a specific version
-pulumi package gen-sdk --language dart pulumi-aws@6.0.0
+# Or manually with pulumi CLI
+pulumi package gen-sdk --language dart --out providers/pulumi_random pulumi-random
 ```
 
 The generated SDK will include:

@@ -1,0 +1,3 @@
+# This file ensures the providers directory is tracked by git.
+# Generated provider SDKs (e.g., pulumi_random/, pulumi_aws/) are gitignored.
+# Use 'pulumi package gen-sdk --language dart <provider>' to generate SDKs.
