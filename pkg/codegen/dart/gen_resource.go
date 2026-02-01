@@ -29,6 +29,7 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 	// Imports
 	buf.WriteString("import 'package:pulumi/pulumi.dart';\n")
 	buf.WriteString("import 'package:meta/meta.dart';\n")
+	buf.WriteString("import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart';\n")
 
 	// Collect imports for property types
 	imports := collectTypeImports(pkg, resource.InputProperties)
@@ -86,7 +87,7 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 
 	// Override inputs getter
 	buf.WriteString("  @override\n")
-	buf.WriteString("  Map<String, dynamic> get inputs => {\n")
+	buf.WriteString("  Map<String, Input<Object?>?> get inputs => {\n")
 	for _, prop := range resource.InputProperties {
 		buf.WriteString(fmt.Sprintf("    '%s': _args.%s,\n", prop.Name, toCamelCase(prop.Name)))
 	}
@@ -95,15 +96,11 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 	// Override processOutputs method
 	buf.WriteString("  @override\n")
 	buf.WriteString("  @protected\n")
-	buf.WriteString("  void processOutputs(Map<String, dynamic> properties) {\n")
-	if !isComponent {
-		buf.WriteString("    super.processOutputs(properties);\n")
-	}
+	buf.WriteString("  void processOutputs(Struct properties) {\n")
+	buf.WriteString("    super.processOutputs(properties);\n")
 	for _, prop := range resource.Properties {
-		dartType := typeToDart(prop.Type, false)
 		propName := toCamelCase(prop.Name)
-		buf.WriteString(fmt.Sprintf("    %s = Output.fromPropertyValue<%s>(properties['%s']);\n",
-			propName, dartType, prop.Name))
+		buf.WriteString(generateOutputPropertyDeserialization(prop, propName))
 	}
 	buf.WriteString("  }\n")
 
@@ -216,4 +213,120 @@ func dedupeStrings(strs []string) []string {
 		}
 	}
 	return result
+}
+
+// generateOutputPropertyDeserialization generates code to deserialize an output property
+// from a protobuf Struct field.
+func generateOutputPropertyDeserialization(prop *schema.Property, propName string) string {
+	var buf bytes.Buffer
+	dartType := typeToDart(prop.Type, false)
+	isOptional := !prop.IsRequired()
+
+	// Generate the deserialization based on the underlying type
+	valueExpr := generateValueExtraction(prop.Type, prop.Name)
+
+	if isOptional {
+		buf.WriteString(fmt.Sprintf("    if (properties.fields.containsKey('%s')) {\n", prop.Name))
+		buf.WriteString(fmt.Sprintf("      %s = Output.of(%s);\n", propName, valueExpr))
+		buf.WriteString("    } else {\n")
+		buf.WriteString(fmt.Sprintf("      %s = Output.of(null);\n", propName))
+		buf.WriteString("    }\n")
+	} else {
+		buf.WriteString(fmt.Sprintf("    %s = Output.of<%s>(%s);\n", propName, dartType, valueExpr))
+	}
+
+	return buf.String()
+}
+
+// generateValueExtraction generates code to extract a value from a protobuf Value.
+func generateValueExtraction(t schema.Type, fieldName string) string {
+	switch tt := t.(type) {
+	case *schema.OptionalType:
+		return generateValueExtraction(tt.ElementType, fieldName)
+
+	case *schema.ArrayType:
+		// For arrays, we need to handle the list value
+		elemExtract := generateListElementExtraction(tt.ElementType)
+		return fmt.Sprintf("properties.fields['%s']?.listValue.values.map((v) => %s).toList() ?? []", fieldName, elemExtract)
+
+	case *schema.MapType:
+		// For maps, we need to handle the struct value as a map
+		elemExtract := generateMapValueExtraction(tt.ElementType)
+		return fmt.Sprintf("Map.fromEntries(properties.fields['%s']?.structValue.fields.entries.map((e) => MapEntry(e.key, %s)) ?? [])", fieldName, elemExtract)
+
+	default:
+		// Primitive types
+		return generatePrimitiveExtraction(t, fmt.Sprintf("properties.fields['%s']", fieldName))
+	}
+}
+
+// generatePrimitiveExtraction generates code to extract a primitive value from a protobuf Value.
+func generatePrimitiveExtraction(t schema.Type, valueExpr string) string {
+	switch t {
+	case schema.BoolType:
+		return fmt.Sprintf("%s?.boolValue ?? false", valueExpr)
+	case schema.IntType:
+		return fmt.Sprintf("(%s?.numberValue ?? 0).toInt()", valueExpr)
+	case schema.NumberType:
+		return fmt.Sprintf("%s?.numberValue ?? 0.0", valueExpr)
+	case schema.StringType:
+		return fmt.Sprintf("%s?.stringValue ?? ''", valueExpr)
+	default:
+		// For complex types (objects, enums), we use dynamic for now
+		// The actual deserialization will depend on having proper type converters
+		switch tt := t.(type) {
+		case *schema.ObjectType:
+			className := tokenToClassName(tt.Token)
+			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(%s?.structValue ?? Struct()) as Map<String, dynamic>)", className, valueExpr)
+		case *schema.EnumType:
+			className := tokenToClassName(tt.Token)
+			return fmt.Sprintf("%s.fromValue(%s?.stringValue ?? '')", className, valueExpr)
+		default:
+			return fmt.Sprintf("%s?.stringValue ?? ''", valueExpr)
+		}
+	}
+}
+
+// generateListElementExtraction generates code to extract an element from a list.
+func generateListElementExtraction(elemType schema.Type) string {
+	switch elemType {
+	case schema.BoolType:
+		return "v.boolValue"
+	case schema.IntType:
+		return "v.numberValue.toInt()"
+	case schema.NumberType:
+		return "v.numberValue"
+	case schema.StringType:
+		return "v.stringValue"
+	default:
+		switch tt := elemType.(type) {
+		case *schema.ObjectType:
+			className := tokenToClassName(tt.Token)
+			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(v.structValue) as Map<String, dynamic>)", className)
+		default:
+			return "v.stringValue"
+		}
+	}
+}
+
+// generateMapValueExtraction generates code to extract a value from a map entry.
+func generateMapValueExtraction(elemType schema.Type) string {
+	switch elemType {
+	case schema.BoolType:
+		return "e.value.boolValue"
+	case schema.IntType:
+		return "e.value.numberValue.toInt()"
+	case schema.NumberType:
+		return "e.value.numberValue"
+	case schema.StringType:
+		return "e.value.stringValue"
+	default:
+		switch tt := elemType.(type) {
+		case *schema.ObjectType:
+			className := tokenToClassName(tt.Token)
+			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(e.value.structValue) as Map<String, dynamic>)", className)
+		default:
+			return "e.value.stringValue"
+		}
+	}
 }
