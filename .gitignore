@@ -1,1 +1,43 @@
+# Claude Code
 .claude/settings.local.json
+
+# Dart
+.dart_tool/
+.packages
+build/
+pubspec.lock
+*.dart.js
+*.dart.js.deps
+*.dart.js.map
+*.info.json
+*.js.deps
+*.js.map
+*.js_
+doc/api/
+
+# Go
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+go.work
+vendor/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build artifacts
+dist/
+bin/
