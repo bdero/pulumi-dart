@@ -1,0 +1,121 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build ${{ matrix.os }}-${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - os: linux
+            arch: amd64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+          - os: linux
+            arch: arm64
+            runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+          - os: darwin
+            arch: amd64
+            runner: macos-latest
+            goos: darwin
+            goarch: amd64
+          - os: darwin
+            arch: arm64
+            runner: macos-latest
+            goos: darwin
+            goarch: arm64
+          - os: windows
+            arch: amd64
+            runner: windows-latest
+            goos: windows
+            goarch: amd64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Get version
+        id: version
+        shell: bash
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Build binary
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          cd cmd/pulumi-language-dart
+
+          BINARY_NAME="pulumi-language-dart"
+          if [ "${{ matrix.goos }}" = "windows" ]; then
+            BINARY_NAME="pulumi-language-dart.exe"
+          fi
+
+          go build -ldflags="-s -w -X main.Version=${{ steps.version.outputs.version }}" \
+            -o "${BINARY_NAME}" .
+
+      - name: Create archive (Unix)
+        if: matrix.goos != 'windows'
+        shell: bash
+        run: |
+          cd cmd/pulumi-language-dart
+          ARCHIVE_NAME="pulumi-language-dart-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
+          tar -czvf "${ARCHIVE_NAME}" pulumi-language-dart
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+
+      - name: Create archive (Windows)
+        if: matrix.goos == 'windows'
+        shell: bash
+        run: |
+          cd cmd/pulumi-language-dart
+          ARCHIVE_NAME="pulumi-language-dart-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz"
+          tar -czvf "${ARCHIVE_NAME}" pulumi-language-dart.exe
+          echo "ARCHIVE_NAME=${ARCHIVE_NAME}" >> $GITHUB_ENV
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: pulumi-language-dart-${{ matrix.os }}-${{ matrix.arch }}
+          path: cmd/pulumi-language-dart/pulumi-language-dart-${{ steps.version.outputs.version }}-${{ matrix.os }}-${{ matrix.arch }}.tar.gz
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: Get version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: ${{ steps.version.outputs.version }}
+          draft: false
+          prerelease: ${{ contains(steps.version.outputs.version, '-') }}
+          files: artifacts/*
+          generate_release_notes: true

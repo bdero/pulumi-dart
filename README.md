@@ -132,6 +132,35 @@ The generated SDK will include:
 - `lib/src/types/` - Type definitions
 - `lib/src/enums/` - Enum types
 
+## Installation
+
+### Installing the Language Plugin
+
+The `pulumi-language-dart` plugin can be installed automatically via the plugin download URL or manually:
+
+```bash
+# Manual installation
+pulumi plugin install language dart v0.1.0 --server github://api.github.com/bdero/pulumi-dart
+
+# Or download directly from GitHub releases
+# https://github.com/bdero/pulumi-dart/releases
+```
+
+The plugin supports the following platforms:
+- `linux-amd64`
+- `linux-arm64`
+- `darwin-amd64`
+- `darwin-arm64`
+- `windows-amd64`
+
+## Releases
+
+This project uses GitHub Actions for automated releases. To create a new release:
+
+1. Tag the commit with a version: `git tag v0.1.0`
+2. Push the tag: `git push origin v0.1.0`
+3. GitHub Actions will automatically build binaries for all platforms and create a release
+
 ## License
 
 Apache 2.0

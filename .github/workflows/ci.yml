@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+jobs:
+  test-go:
+    name: Go Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Test Language Host
+        run: |
+          cd cmd/pulumi-language-dart
+          go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Test Codegen
+        run: |
+          cd pkg/codegen/dart
+          go test -v -race -coverprofile=coverage.out ./...
+
+      - name: Build Language Host
+        run: |
+          cd cmd/pulumi-language-dart
+          go build -o pulumi-language-dart .
+
+  test-dart:
+    name: Dart Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Dart
+        uses: dart-lang/setup-dart@v1
+        with:
+          sdk: '3.0.0'
+
+      - name: Install SDK dependencies
+        run: |
+          cd sdk/dart
+          dart pub get
+
+      - name: Run SDK tests
+        run: |
+          cd sdk/dart
+          dart test
+
+      - name: Install integration test dependencies
+        run: |
+          cd tests/integration
+          dart pub get
+
+      - name: Run integration tests
+        run: |
+          cd tests/integration
+          dart test
+
+  build-cross-platform:
+    name: Cross-platform Build Check
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build for ${{ matrix.goos }}/${{ matrix.goarch }}
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: 0
+        run: |
+          cd cmd/pulumi-language-dart
+          go build -ldflags="-s -w" -o pulumi-language-dart .
