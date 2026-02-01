@@ -1,0 +1,13 @@
+include: package:lints/recommended.yaml
+
+analyzer:
+  exclude:
+    - lib/src/proto/**
+  errors:
+    # Generated proto code has many lint issues we can't control
+    unused_import: ignore
+
+linter:
+  rules:
+    - avoid_print
+    - prefer_single_quotes
