@@ -19,11 +19,13 @@ library pulumi;
 // Core SDK types
 export 'src/output.dart';
 export 'src/input.dart';
+export 'src/options.dart';
 export 'src/resource.dart';
 export 'src/pulumi.dart';
 export 'src/config.dart';
 
 // Proto-generated gRPC clients (internal use only)
+// Note: alias.pb.dart Alias is hidden to avoid conflict with SDK Alias type
 export 'src/proto/pulumi/resource.pb.dart';
 export 'src/proto/pulumi/resource.pbgrpc.dart';
 export 'src/proto/pulumi/provider.pb.dart';
@@ -31,7 +33,7 @@ export 'src/proto/pulumi/provider.pbgrpc.dart';
 export 'src/proto/pulumi/engine.pb.dart';
 export 'src/proto/pulumi/engine.pbgrpc.dart';
 export 'src/proto/pulumi/plugin.pb.dart';
-export 'src/proto/pulumi/alias.pb.dart';
+export 'src/proto/pulumi/alias.pb.dart' hide Alias;
 export 'src/proto/pulumi/callback.pb.dart';
 export 'src/proto/pulumi/callback.pbgrpc.dart';
 export 'src/proto/pulumi/source.pb.dart';

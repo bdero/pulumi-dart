@@ -4,49 +4,15 @@ import 'package:meta/meta.dart';
 import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart';
 
 import 'input.dart';
+import 'options.dart';
 import 'output.dart';
+import 'proto/pulumi/alias.pb.dart' as alias_pb;
+import 'proto/pulumi/resource.pb.dart' as resource_pb;
 import 'runtime/runtime.dart';
 import 'runtime/serialization.dart';
 
-/// Options for controlling resource behavior.
-///
-/// These options are shared by all resource types. Specific resource types
-/// may have additional options (e.g., [CustomResourceOptions]).
-class ResourceOptions {
-  /// An optional parent resource. When set, this resource will be a child of
-  /// the parent, affecting URN construction and default provider inheritance.
-  final Resource? parent;
-
-  /// When true, the resource will be protected from deletion. A protected
-  /// resource cannot be deleted directly; the protection must be removed first.
-  final bool protect;
-
-  /// An optional list of explicit dependencies. The resource will not be
-  /// created until all dependencies have been created.
-  final List<Resource> dependsOn;
-
-  /// An optional provider to use for this resource. If not specified, the
-  /// default provider for the resource type will be used.
-  final String? provider;
-
-  /// When true, the resource will be retained when the stack is destroyed,
-  /// instead of being deleted.
-  final bool retainOnDelete;
-
-  /// The URN of the resource that this resource was deleted with. This is
-  /// used during delete operations.
-  final String? deletedWith;
-
-  /// Creates resource options.
-  const ResourceOptions({
-    this.parent,
-    this.protect = false,
-    this.dependsOn = const [],
-    this.provider,
-    this.retainOnDelete = false,
-    this.deletedWith,
-  });
-}
+// Re-export options for backward compatibility
+export 'options.dart';
 
 /// Base class for all Pulumi resources.
 ///
@@ -191,7 +157,34 @@ abstract class Resource {
       // Get parent URN if we have a parent
       String? parentUrn;
       if (_opts?.parent != null) {
-        parentUrn = await _opts!.parent!.urn.future;
+        parentUrn = await (_opts!.parent as Resource).urn.future;
+      }
+
+      // Convert aliases to protobuf format
+      final pbAliases = _convertAliases(_opts?.aliases ?? []);
+
+      // Convert custom timeouts to protobuf format
+      resource_pb.RegisterResourceRequest_CustomTimeouts? pbTimeouts;
+      if (_opts?.customTimeouts != null) {
+        pbTimeouts = resource_pb.RegisterResourceRequest_CustomTimeouts();
+        if (_opts!.customTimeouts!.create != null) {
+          pbTimeouts.create_1 = _opts!.customTimeouts!.create!;
+        }
+        if (_opts!.customTimeouts!.update != null) {
+          pbTimeouts.update = _opts!.customTimeouts!.update!;
+        }
+        if (_opts!.customTimeouts!.delete != null) {
+          pbTimeouts.delete = _opts!.customTimeouts!.delete!;
+        }
+      }
+
+      // Get CustomResourceOptions-specific fields if applicable
+      String? importId;
+      bool deleteBeforeReplace = false;
+      if (_opts is CustomResourceOptions) {
+        final customOpts = _opts as CustomResourceOptions;
+        importId = customOpts.importId;
+        deleteBeforeReplace = customOpts.deleteBeforeReplace;
       }
 
       // Register the resource with the Pulumi engine
@@ -206,6 +199,14 @@ abstract class Resource {
         retainOnDelete: _opts?.retainOnDelete ?? false,
         deletedWith: _opts?.deletedWith,
         providerRef: _opts?.provider,
+        aliases: pbAliases,
+        ignoreChanges: _opts?.ignoreChanges ?? [],
+        replaceOnChanges: _opts?.replaceOnChanges ?? [],
+        customTimeouts: pbTimeouts,
+        version: _opts?.version,
+        pluginDownloadUrl: _opts?.pluginDownloadUrl,
+        importId: importId,
+        deleteBeforeReplace: deleteBeforeReplace,
       );
 
       // Set the URN from the response
@@ -222,7 +223,7 @@ abstract class Resource {
     } else {
       // Mock implementation for testing when Runtime is not initialized
       final parentUrn = _opts?.parent != null
-          ? await _opts!.parent!.urn.future
+          ? await (_opts!.parent as Resource).urn.future
           : 'urn:pulumi:stack::project';
       final mockUrn = '$parentUrn::$_type::$_name';
       urn = Output.fromData(OutputData.known(
@@ -233,6 +234,32 @@ abstract class Resource {
       // Call processOutputs with empty struct for subclasses that need initialization
       processOutputs(Struct());
     }
+  }
+
+  /// Converts SDK alias types to protobuf format.
+  List<alias_pb.Alias> _convertAliases(List<Alias> aliases) {
+    return aliases.map((a) {
+      switch (a) {
+        case AliasUrn(:final urn):
+          return alias_pb.Alias(urn: urn);
+        case AliasSpec(
+            :final name,
+            :final type,
+            :final stack,
+            :final project,
+            :final parentUrn,
+            :final noParent
+          ):
+          final spec = alias_pb.Alias_Spec();
+          if (name != null) spec.name = name;
+          if (type != null) spec.type = type;
+          if (stack != null) spec.stack = stack;
+          if (project != null) spec.project = project;
+          if (parentUrn != null) spec.parentUrn = parentUrn;
+          if (noParent == true) spec.noParent = true;
+          return alias_pb.Alias(spec: spec);
+      }
+    }).toList();
   }
 
   /// Processes the output properties returned from registration.
@@ -257,7 +284,8 @@ abstract class Resource {
     // Add explicit dependencies from options
     if (_opts != null) {
       for (final dep in _opts!.dependsOn) {
-        final depUrn = await dep.urn.dataFuture;
+        final depResource = dep as Resource;
+        final depUrn = await depResource.urn.dataFuture;
         if (depUrn.isKnown) {
           urns.add(depUrn.value);
         }

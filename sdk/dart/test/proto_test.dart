@@ -1,5 +1,6 @@
 import 'package:test/test.dart';
 import 'package:pulumi/pulumi.dart';
+import 'package:pulumi/src/proto/pulumi/alias.pb.dart' as alias_pb;
 
 void main() {
   group('Proto Generated Types', () {
@@ -60,7 +61,7 @@ void main() {
     });
 
     test('Alias message can be created', () {
-      final alias = Alias()
+      final alias = alias_pb.Alias()
         ..urn = 'urn:pulumi:dev::project::aws:s3/bucket:Bucket::old-name';
 
       expect(alias.urn, contains('old-name'));
