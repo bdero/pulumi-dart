@@ -66,6 +66,31 @@ void main() {
     });
   });
 
+  group('Output.fromData', () {
+    test('creates output from OutputData', () async {
+      final data = OutputData<String>.known(
+        'test-value',
+        isSecret: true,
+        dependencies: {'urn:1'},
+      );
+      final output = Output.fromData(data);
+      final result = await output.dataFuture;
+
+      expect(result.value, equals('test-value'));
+      expect(result.isSecret, isTrue);
+      expect(result.dependencies, contains('urn:1'));
+    });
+  });
+
+  group('Output.fromDataFuture', () {
+    test('creates output from Future of OutputData', () async {
+      final dataFuture = Future.value(OutputData<int>.known(42));
+      final output = Output.fromDataFuture(dataFuture);
+
+      expect(await output.future, equals(42));
+    });
+  });
+
   group('Output.unknown', () {
     test('creates unknown output', () async {
       final output = Output<String>.unknown();
@@ -289,6 +314,14 @@ void main() {
       expect(modified.dependencies, equals({'urn:1'}));
     });
 
+    test('copyWith with valueProvided replaces value', () {
+      final data = OutputData<String>.known('original');
+
+      final modified = data.copyWith(value: 'new', valueProvided: true);
+
+      expect(modified.value, equals('new'));
+    });
+
     test('map transforms value while preserving metadata', () {
       final data = OutputData<int>.known(
         5,
@@ -310,6 +343,35 @@ void main() {
       final mapped = data.map((v) => v * 2);
 
       expect(mapped.isKnown, isFalse);
+    });
+
+    test('value getter throws on unknown', () {
+      final data = OutputData<int>.unknown();
+
+      expect(() => data.value, throwsA(isA<StateError>()));
+    });
+
+    test('valueOrNull returns null for unknown', () {
+      final data = OutputData<int>.unknown();
+
+      expect(data.valueOrNull, isNull);
+    });
+
+    test('valueOrNull returns value for known', () {
+      final data = OutputData<int>.known(42);
+
+      expect(data.valueOrNull, equals(42));
+    });
+
+    test('unknown factory creates with metadata', () {
+      final data = OutputData<int>.unknown(
+        isSecret: true,
+        dependencies: {'urn:1'},
+      );
+
+      expect(data.isKnown, isFalse);
+      expect(data.isSecret, isTrue);
+      expect(data.dependencies, contains('urn:1'));
     });
   });
 

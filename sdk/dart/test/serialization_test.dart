@@ -500,5 +500,44 @@ void main() {
       expect(ref.toString(), contains('urn:pulumi:stack::project::type::name'));
       expect(ref.toString(), contains('id-123'));
     });
+
+    test('FileAsset toString', () {
+      final asset = FileAsset('/path/to/file.txt');
+      expect(asset.toString(), 'FileAsset(/path/to/file.txt)');
+    });
+
+    test('StringAsset toString', () {
+      final asset = StringAsset('hello world');
+      expect(asset.toString(), 'StringAsset(11 chars)');
+    });
+
+    test('RemoteAsset toString', () {
+      final asset = RemoteAsset('https://example.com/file');
+      expect(asset.toString(), 'RemoteAsset(https://example.com/file)');
+    });
+
+    test('FileArchive toString', () {
+      final archive = FileArchive('/path/to/archive.zip');
+      expect(archive.toString(), 'FileArchive(/path/to/archive.zip)');
+    });
+
+    test('RemoteArchive toString', () {
+      final archive = RemoteArchive('https://example.com/archive.tar.gz');
+      expect(archive.toString(), 'RemoteArchive(https://example.com/archive.tar.gz)');
+    });
+  });
+
+  group('Edge cases', () {
+    test('serializes unsupported type by converting to string', () async {
+      // Custom class that is not a primitive, list, map, Input, or Output
+      final result = await PropertySerializer.serializeValue(DateTime(2024, 1, 1));
+      expect(result.value.hasStringValue(), isTrue);
+      expect(result.value.stringValue, contains('2024'));
+    });
+
+    test('deserializes Value_Kind.notSet as null', () {
+      final value = Value(); // Default value has notSet kind
+      expect(PropertyDeserializer.deserializeValue(value), isNull);
+    });
   });
 }
