@@ -1,0 +1,3 @@
+name: basic-random-test
+description: Integration test using pulumi-random provider
+runtime: dart
