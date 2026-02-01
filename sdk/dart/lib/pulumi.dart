@@ -21,6 +21,7 @@ export 'src/output.dart';
 export 'src/input.dart';
 export 'src/resource.dart';
 export 'src/pulumi.dart';
+export 'src/config.dart';
 
 // Proto-generated gRPC clients (internal use only)
 export 'src/proto/pulumi/resource.pb.dart';
