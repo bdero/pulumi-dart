@@ -64,7 +64,12 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 			buf.WriteString(fmt.Sprintf("  @Deprecated('%s')\n", escapeDartString(prop.DeprecationMessage)))
 		}
 		dartType := typeToDart(prop.Type, false)
-		buf.WriteString(fmt.Sprintf("  late final Output<%s> %s;\n\n", dartType, toCamelCase(prop.Name)))
+		// For optional output properties, use nullable type
+		if !prop.IsRequired() {
+			buf.WriteString(fmt.Sprintf("  late final Output<%s?> %s;\n\n", dartType, toCamelCase(prop.Name)))
+		} else {
+			buf.WriteString(fmt.Sprintf("  late final Output<%s> %s;\n\n", dartType, toCamelCase(prop.Name)))
+		}
 	}
 
 	// Private args field
@@ -219,57 +224,71 @@ func dedupeStrings(strs []string) []string {
 // from a protobuf Struct field.
 func generateOutputPropertyDeserialization(prop *schema.Property, propName string) string {
 	var buf bytes.Buffer
-	dartType := typeToDart(prop.Type, false)
 	isOptional := !prop.IsRequired()
 
 	// Generate the deserialization based on the underlying type
-	valueExpr := generateValueExtraction(prop.Type, prop.Name)
+	valueExpr := generateValueExtraction(prop.Type, prop.Name, isOptional)
 
-	if isOptional {
-		buf.WriteString(fmt.Sprintf("    if (properties.fields.containsKey('%s')) {\n", prop.Name))
-		buf.WriteString(fmt.Sprintf("      %s = Output.of(%s);\n", propName, valueExpr))
-		buf.WriteString("    } else {\n")
-		buf.WriteString(fmt.Sprintf("      %s = Output.of(null);\n", propName))
-		buf.WriteString("    }\n")
-	} else {
-		buf.WriteString(fmt.Sprintf("    %s = Output.of<%s>(%s);\n", propName, dartType, valueExpr))
-	}
+	// In Dart, Output.of() doesn't take type parameters on the constructor call -
+	// the type is inferred from the argument. So we just use Output.of(value).
+	buf.WriteString(fmt.Sprintf("    %s = Output.of(%s);\n", propName, valueExpr))
 
 	return buf.String()
 }
 
 // generateValueExtraction generates code to extract a value from a protobuf Value.
-func generateValueExtraction(t schema.Type, fieldName string) string {
+// If isOptional is true, the generated expression can return null.
+func generateValueExtraction(t schema.Type, fieldName string, isOptional bool) string {
 	switch tt := t.(type) {
 	case *schema.OptionalType:
-		return generateValueExtraction(tt.ElementType, fieldName)
+		// For optional types, always generate nullable extraction
+		return generateValueExtraction(tt.ElementType, fieldName, true)
 
 	case *schema.ArrayType:
 		// For arrays, we need to handle the list value
 		elemExtract := generateListElementExtraction(tt.ElementType)
+		if isOptional {
+			return fmt.Sprintf("properties.fields.containsKey('%s') ? properties.fields['%s']!.listValue.values.map((v) => %s).toList() : null", fieldName, fieldName, elemExtract)
+		}
 		return fmt.Sprintf("properties.fields['%s']?.listValue.values.map((v) => %s).toList() ?? []", fieldName, elemExtract)
 
 	case *schema.MapType:
 		// For maps, we need to handle the struct value as a map
 		elemExtract := generateMapValueExtraction(tt.ElementType)
+		if isOptional {
+			return fmt.Sprintf("properties.fields.containsKey('%s') ? Map.fromEntries(properties.fields['%s']!.structValue.fields.entries.map((e) => MapEntry(e.key, %s))) : null", fieldName, fieldName, elemExtract)
+		}
 		return fmt.Sprintf("Map.fromEntries(properties.fields['%s']?.structValue.fields.entries.map((e) => MapEntry(e.key, %s)) ?? [])", fieldName, elemExtract)
 
 	default:
 		// Primitive types
-		return generatePrimitiveExtraction(t, fmt.Sprintf("properties.fields['%s']", fieldName))
+		return generatePrimitiveExtraction(t, fmt.Sprintf("properties.fields['%s']", fieldName), isOptional)
 	}
 }
 
 // generatePrimitiveExtraction generates code to extract a primitive value from a protobuf Value.
-func generatePrimitiveExtraction(t schema.Type, valueExpr string) string {
+// If isOptional is true, the expression can return null instead of a default value.
+func generatePrimitiveExtraction(t schema.Type, valueExpr string, isOptional bool) string {
 	switch t {
 	case schema.BoolType:
+		if isOptional {
+			return fmt.Sprintf("%s?.boolValue", valueExpr)
+		}
 		return fmt.Sprintf("%s?.boolValue ?? false", valueExpr)
 	case schema.IntType:
+		if isOptional {
+			return fmt.Sprintf("%s?.numberValue?.toInt()", valueExpr)
+		}
 		return fmt.Sprintf("(%s?.numberValue ?? 0).toInt()", valueExpr)
 	case schema.NumberType:
+		if isOptional {
+			return fmt.Sprintf("%s?.numberValue", valueExpr)
+		}
 		return fmt.Sprintf("%s?.numberValue ?? 0.0", valueExpr)
 	case schema.StringType:
+		if isOptional {
+			return fmt.Sprintf("%s?.stringValue", valueExpr)
+		}
 		return fmt.Sprintf("%s?.stringValue ?? ''", valueExpr)
 	default:
 		// For complex types (objects, enums), we use dynamic for now
@@ -277,11 +296,20 @@ func generatePrimitiveExtraction(t schema.Type, valueExpr string) string {
 		switch tt := t.(type) {
 		case *schema.ObjectType:
 			className := tokenToClassName(tt.Token)
+			if isOptional {
+				return fmt.Sprintf("%s != null ? %s.fromPropertyMap(PropertyDeserializer.deserializeStruct(%s!.structValue) as Map<String, dynamic>) : null", valueExpr, className, valueExpr)
+			}
 			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(%s?.structValue ?? Struct()) as Map<String, dynamic>)", className, valueExpr)
 		case *schema.EnumType:
 			className := tokenToClassName(tt.Token)
+			if isOptional {
+				return fmt.Sprintf("%s?.stringValue != null ? %s.fromValue(%s!.stringValue) : null", valueExpr, className, valueExpr)
+			}
 			return fmt.Sprintf("%s.fromValue(%s?.stringValue ?? '')", className, valueExpr)
 		default:
+			if isOptional {
+				return fmt.Sprintf("%s?.stringValue", valueExpr)
+			}
 			return fmt.Sprintf("%s?.stringValue ?? ''", valueExpr)
 		}
 	}

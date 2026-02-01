@@ -435,8 +435,8 @@ func TestGenerateOutputPropertyDeserialization(t *testing.T) {
 
 		result := generateOutputPropertyDeserialization(prop, "name")
 
-		if !strings.Contains(result, "name = Output.of<String>") {
-			t.Error("Expected Output.of<String> not found")
+		if !strings.Contains(result, "name = Output.of(") {
+			t.Error("Expected Output.of( not found")
 		}
 		if !strings.Contains(result, "properties.fields['name']?.stringValue") {
 			t.Error("Expected stringValue accessor not found")
@@ -451,8 +451,8 @@ func TestGenerateOutputPropertyDeserialization(t *testing.T) {
 
 		result := generateOutputPropertyDeserialization(prop, "count")
 
-		if !strings.Contains(result, "count = Output.of<int>") {
-			t.Error("Expected Output.of<int> not found")
+		if !strings.Contains(result, "count = Output.of(") {
+			t.Error("Expected Output.of( not found")
 		}
 		if !strings.Contains(result, "numberValue") {
 			t.Error("Expected numberValue accessor not found")
@@ -470,8 +470,8 @@ func TestGenerateOutputPropertyDeserialization(t *testing.T) {
 
 		result := generateOutputPropertyDeserialization(prop, "enabled")
 
-		if !strings.Contains(result, "enabled = Output.of<bool>") {
-			t.Error("Expected Output.of<bool> not found")
+		if !strings.Contains(result, "enabled = Output.of(") {
+			t.Error("Expected Output.of( not found")
 		}
 		if !strings.Contains(result, "boolValue") {
 			t.Error("Expected boolValue accessor not found")
@@ -486,8 +486,8 @@ func TestGenerateOutputPropertyDeserialization(t *testing.T) {
 
 		result := generateOutputPropertyDeserialization(prop, "price")
 
-		if !strings.Contains(result, "Output.of<double>") {
-			t.Error("Expected Output.of<double> not found")
+		if !strings.Contains(result, "price = Output.of(") {
+			t.Error("Expected Output.of( not found")
 		}
 		if !strings.Contains(result, "numberValue") {
 			t.Error("Expected numberValue accessor not found")
@@ -502,11 +502,12 @@ func TestGenerateOutputPropertyDeserialization(t *testing.T) {
 
 		result := generateOutputPropertyDeserialization(prop, "description")
 
-		if !strings.Contains(result, "if (properties.fields.containsKey('description'))") {
-			t.Error("Expected containsKey check for optional property not found")
+		// Optional types now generate a nullable extraction without containsKey check
+		if !strings.Contains(result, "description = Output.of(") {
+			t.Error("Expected Output.of( not found for optional property")
 		}
-		if !strings.Contains(result, "description = Output.of(null)") {
-			t.Error("Expected null fallback for optional property not found")
+		if !strings.Contains(result, "stringValue") {
+			t.Error("Expected stringValue accessor not found for optional property")
 		}
 	})
 
@@ -518,8 +519,8 @@ func TestGenerateOutputPropertyDeserialization(t *testing.T) {
 
 		result := generateOutputPropertyDeserialization(prop, "items")
 
-		if !strings.Contains(result, "Output.of<List<String>>") {
-			t.Error("Expected Output.of<List<String>> not found")
+		if !strings.Contains(result, "items = Output.of(") {
+			t.Error("Expected Output.of( not found")
 		}
 		if !strings.Contains(result, "listValue.values.map") {
 			t.Error("Expected listValue.values.map accessor not found")
@@ -537,8 +538,8 @@ func TestGenerateOutputPropertyDeserialization(t *testing.T) {
 
 		result := generateOutputPropertyDeserialization(prop, "tags")
 
-		if !strings.Contains(result, "Output.of<Map<String, String>>") {
-			t.Error("Expected Output.of<Map<String, String>> not found")
+		if !strings.Contains(result, "tags = Output.of(") {
+			t.Error("Expected Output.of( not found")
 		}
 		if !strings.Contains(result, "Map.fromEntries") {
 			t.Error("Expected Map.fromEntries not found")

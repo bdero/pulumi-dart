@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"strings"
 
 	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
 )
@@ -157,6 +158,7 @@ func (g *Generator) generatePubspec() ([]byte, error) {
 	buf.WriteString("\ndependencies:\n")
 	buf.WriteString("  pulumi: ^0.1.0\n")
 	buf.WriteString("  meta: ^1.11.0\n")
+	buf.WriteString("  protobuf: ^3.1.0\n")
 
 	buf.WriteString("\ndev_dependencies:\n")
 	buf.WriteString("  test: ^1.25.0\n")
@@ -199,23 +201,42 @@ func (g *Generator) generateMainLibrary() ([]byte, error) {
 
 	// Export all generated modules
 	// This will be populated by the specific generators
+	// Use maps to track exports and avoid duplicates
+	exportedTypes := make(map[string]bool)
+	exportedEnums := make(map[string]bool)
+
 	buf.WriteString("// Types\n")
 	for _, typ := range g.pkg.Types {
-		if _, isEnum := typ.(*schema.EnumType); !isEnum {
-			name := tokenToModulePath(typ.String())
-			if name != "" {
-				buf.WriteString(fmt.Sprintf("export 'src/types/%s.dart';\n", name))
-			}
+		// Only export ObjectTypes with valid tokens - skip built-in types
+		objectType, isObject := typ.(*schema.ObjectType)
+		if !isObject {
+			continue
+		}
+		// Skip types that don't have a proper token (e.g., built-in types)
+		if !strings.Contains(objectType.Token, ":") {
+			continue
+		}
+		name := tokenToModulePath(objectType.Token)
+		if name != "" && !exportedTypes[name] {
+			exportedTypes[name] = true
+			buf.WriteString(fmt.Sprintf("export 'src/types/%s.dart';\n", name))
 		}
 	}
 
 	buf.WriteString("\n// Enums\n")
 	for _, typ := range g.pkg.Types {
-		if _, isEnum := typ.(*schema.EnumType); isEnum {
-			name := tokenToModulePath(typ.String())
-			if name != "" {
-				buf.WriteString(fmt.Sprintf("export 'src/enums/%s.dart';\n", name))
-			}
+		enumType, isEnum := typ.(*schema.EnumType)
+		if !isEnum {
+			continue
+		}
+		// Skip enums that don't have a proper token
+		if !strings.Contains(enumType.Token, ":") {
+			continue
+		}
+		name := tokenToModulePath(enumType.Token)
+		if name != "" && !exportedEnums[name] {
+			exportedEnums[name] = true
+			buf.WriteString(fmt.Sprintf("export 'src/enums/%s.dart';\n", name))
 		}
 	}
 

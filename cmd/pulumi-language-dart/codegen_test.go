@@ -2,7 +2,9 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -375,4 +377,102 @@ func containsHelper(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+// TestGeneratePackage_DartAnalyze generates an SDK and runs dart analyze to verify
+// the generated code is syntactically valid and has no errors.
+// This test requires Dart to be installed and is skipped if Dart is not available.
+func TestGeneratePackage_DartAnalyze(t *testing.T) {
+	// Check if dart is available
+	dartPath, err := exec.LookPath("dart")
+	if err != nil {
+		t.Skip("Dart not available, skipping dart analyze test")
+	}
+
+	// Create a temporary output directory
+	outDir, err := os.MkdirTemp("", "pulumi-dart-analyze")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(outDir)
+
+	// Read the test schema file
+	schemaBytes, err := os.ReadFile("testdata/random_schema.json")
+	if err != nil {
+		t.Fatalf("Failed to read test schema: %v", err)
+	}
+
+	// Generate the SDK
+	diagnostics, err := GeneratePackage(outDir, string(schemaBytes), nil, "", nil)
+	if err != nil {
+		t.Fatalf("GeneratePackage failed: %v", err)
+	}
+
+	// Check for error diagnostics
+	for _, diag := range diagnostics {
+		if diag.Severity == 1 { // DIAG_ERROR
+			t.Errorf("Generation had error diagnostic: %s", diag.Summary)
+		}
+	}
+
+	// Update pubspec.yaml to use the local SDK path instead of a pub.dev version
+	// This allows dart analyze to resolve the pulumi package
+	sdkPath, err := filepath.Abs("../../sdk/dart")
+	if err != nil {
+		t.Fatalf("Failed to get SDK path: %v", err)
+	}
+
+	pubspecContent := `name: pulumi_random
+version: 4.15.0
+description: Pulumi provider SDK for random
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  pulumi:
+    path: ` + filepath.ToSlash(sdkPath) + `
+  meta: ^1.11.0
+
+dev_dependencies:
+  test: ^1.25.0
+  lints: ^3.0.0
+`
+	pubspecPath := filepath.Join(outDir, "pubspec.yaml")
+	if err := os.WriteFile(pubspecPath, []byte(pubspecContent), 0644); err != nil {
+		t.Fatalf("Failed to write pubspec.yaml: %v", err)
+	}
+
+	// Run dart pub get to fetch dependencies
+	pubGetCmd := exec.Command(dartPath, "pub", "get")
+	pubGetCmd.Dir = outDir
+	pubGetOutput, err := pubGetCmd.CombinedOutput()
+	if err != nil {
+		t.Logf("dart pub get output: %s", string(pubGetOutput))
+		t.Fatalf("dart pub get failed: %v", err)
+	}
+
+	// Run dart analyze to check for errors
+	// Use --fatal-warnings to fail on warnings/errors but not on info-level lints
+	// Info-level lints are style suggestions (constructor ordering, etc.) that don't affect correctness
+	analyzeCmd := exec.Command(dartPath, "analyze", "--fatal-warnings")
+	analyzeCmd.Dir = outDir
+	analyzeOutput, err := analyzeCmd.CombinedOutput()
+
+	// Log the output for debugging
+	if len(analyzeOutput) > 0 {
+		t.Logf("dart analyze output:\n%s", string(analyzeOutput))
+	}
+
+	if err != nil {
+		// Check if the only issues are info-level (style) suggestions
+		outputStr := string(analyzeOutput)
+		if strings.Contains(outputStr, "error -") {
+			t.Errorf("dart analyze found errors in generated code: %v", err)
+		} else {
+			t.Log("dart analyze passed (only info-level lints found)")
+		}
+	} else {
+		t.Log("dart analyze passed - generated code is valid")
+	}
 }

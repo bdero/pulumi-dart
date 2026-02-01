@@ -64,20 +64,20 @@ func TestGenerateFunction(t *testing.T) {
 			t.Error("Expected async keyword not found")
 		}
 
-		// Check args map building
-		if !strings.Contains(result, "final args = <String, dynamic>{") {
+		// Check args map building - now uses Input<Object?>? type and Input.value() wrapper
+		if !strings.Contains(result, "final args = <String, Input<Object?>?>{") {
 			t.Error("Expected args map declaration not found")
 		}
-		if !strings.Contains(result, "'region': region,") {
+		if !strings.Contains(result, "'region': Input.value(region),") {
 			t.Error("Expected region in args map not found")
 		}
-		if !strings.Contains(result, "if (allAvailabilityZones != null) 'all_availability_zones': allAvailabilityZones,") {
+		if !strings.Contains(result, "if (allAvailabilityZones != null) 'all_availability_zones': Input.value(allAvailabilityZones),") {
 			t.Error("Expected conditional allAvailabilityZones in args map not found")
 		}
 
-		// Check invoke call
-		if !strings.Contains(result, "final result = await invoke('test:index:getAvailabilityZones', args, options);") {
-			t.Error("Expected invoke call not found")
+		// Check invoke call - uses invokeAsync which returns Future<Map<String, dynamic>>
+		if !strings.Contains(result, "final result = await invokeAsync('test:index:getAvailabilityZones', args, options);") {
+			t.Error("Expected invokeAsync call not found")
 		}
 
 		// Check return statement - function uses GetAvailabilityZonesResult
@@ -134,7 +134,7 @@ func TestGenerateFunction(t *testing.T) {
 		}
 
 		// Check args map (empty with just closing brace)
-		if !strings.Contains(result, "final args = <String, dynamic>{") {
+		if !strings.Contains(result, "final args = <String, Input<Object?>?>{") {
 			t.Error("Expected empty args map not found")
 		}
 	})

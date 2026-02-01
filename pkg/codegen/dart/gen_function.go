@@ -75,21 +75,23 @@ func generateFunction(pkg *schema.Package, function *schema.Function) ([]byte, e
 	buf.WriteString("}) async {\n")
 
 	// Build args map
-	buf.WriteString("  final args = <String, dynamic>{\n")
+	// Note: invokeAsync accepts Map<String, Input<Object?>?> but the values here
+	// are plain Dart types wrapped with Input.value()
+	buf.WriteString("  final args = <String, Input<Object?>?>{\n")
 	if function.Inputs != nil {
 		for _, prop := range function.Inputs.Properties {
 			propName := toCamelCase(prop.Name)
 			if prop.IsRequired() {
-				buf.WriteString(fmt.Sprintf("    '%s': %s,\n", prop.Name, propName))
+				buf.WriteString(fmt.Sprintf("    '%s': Input.value(%s),\n", prop.Name, propName))
 			} else {
-				buf.WriteString(fmt.Sprintf("    if (%s != null) '%s': %s,\n", propName, prop.Name, propName))
+				buf.WriteString(fmt.Sprintf("    if (%s != null) '%s': Input.value(%s),\n", propName, prop.Name, propName))
 			}
 		}
 	}
 	buf.WriteString("  };\n\n")
 
-	// Call the invoke function
-	buf.WriteString(fmt.Sprintf("  final result = await invoke('%s', args, options);\n", function.Token))
+	// Call the invokeAsync function (returns Future<Map<String, dynamic>>)
+	buf.WriteString(fmt.Sprintf("  final result = await invokeAsync('%s', args, options);\n", function.Token))
 
 	if hasOutputs {
 		buf.WriteString(fmt.Sprintf("  return %s.fromPropertyMap(result);\n", resultClassName))
