@@ -23,6 +23,7 @@ export 'src/options.dart';
 export 'src/resource.dart';
 export 'src/pulumi.dart';
 export 'src/config.dart';
+export 'src/invoke.dart';
 
 // Proto-generated gRPC clients (internal use only)
 // Note: alias.pb.dart Alias is hidden to avoid conflict with SDK Alias type
