@@ -33,6 +33,10 @@ type DartLanguageHost struct {
 
 	// deps handles dependency management
 	deps *DependencyManager
+
+	// engineAddress is the address of the Pulumi engine gRPC server.
+	// This is passed to the Dart program to enable logging and other engine communication.
+	engineAddress string
 }
 
 // NewDartLanguageHost creates a new Dart language host.
@@ -40,6 +44,15 @@ func NewDartLanguageHost() *DartLanguageHost {
 	return &DartLanguageHost{
 		executor: NewDartExecutor(),
 		deps:     NewDependencyManager(),
+	}
+}
+
+// NewDartLanguageHostWithEngine creates a new Dart language host with an engine address.
+func NewDartLanguageHostWithEngine(engineAddress string) *DartLanguageHost {
+	return &DartLanguageHost{
+		executor:      NewDartExecutor(),
+		deps:          NewDependencyManager(),
+		engineAddress: engineAddress,
 	}
 }
 
@@ -74,25 +87,38 @@ func (h *DartLanguageHost) GetRequiredPlugins(
 // Run executes the Dart program.
 //
 // This is the main entry point for running a Pulumi Dart program. It:
-// 1. Sets up environment variables with monitor/engine addresses
-// 2. Spawns the Dart process
-// 3. Waits for completion and returns the exit code
+// 1. Parses runtime options from ProgramInfo
+// 2. Sets up environment variables with monitor/engine addresses
+// 3. Spawns the Dart process using the appropriate execution mode
+// 4. Waits for completion and returns the exit code
 func (h *DartLanguageHost) Run(
 	ctx context.Context,
 	req *pulumirpc.RunRequest,
 ) (*pulumirpc.RunResponse, error) {
+	// Parse runtime options from ProgramInfo
+	opts := parseRuntimeOptions(req.Info)
+
+	// Determine the program directory
+	programDir := req.Pwd
+	if req.Info != nil && req.Info.ProgramDirectory != "" {
+		programDir = req.Info.ProgramDirectory
+	}
+
 	config := ExecutorConfig{
-		Program:        req.Program,
+		Program:        programDir,
 		Pwd:            req.Pwd,
 		Args:           req.Args,
 		Config:         req.Config,
 		DryRun:         req.DryRun,
 		Parallel:       int(req.Parallel),
 		MonitorAddress: req.MonitorAddress,
-		EngineAddress:  req.Info.GetRootDirectory(), // Use RootDirectory as a fallback
+		EngineAddress:  h.engineAddress,
 		Project:        req.Project,
 		Stack:          req.Stack,
 		Organization:   req.Organization,
+		// Runtime options
+		ExecutionMode: opts.Mode,
+		BinaryPath:    opts.Binary,
 	}
 
 	result, err := h.executor.Run(ctx, config)
@@ -101,9 +127,50 @@ func (h *DartLanguageHost) Run(
 	}
 
 	return &pulumirpc.RunResponse{
-		Error:  result.Error,
-		Bail:   result.Bail,
+		Error: result.Error,
+		Bail:  result.Bail,
 	}, nil
+}
+
+// RuntimeOptions contains parsed runtime options from Pulumi.yaml.
+type RuntimeOptions struct {
+	// Mode is the execution mode: "run" (default), "aot", or "binary"
+	Mode string
+	// Binary is the path to a pre-compiled binary (when Mode is "binary")
+	Binary string
+}
+
+// parseRuntimeOptions extracts runtime options from ProgramInfo.
+func parseRuntimeOptions(info *pulumirpc.ProgramInfo) RuntimeOptions {
+	opts := RuntimeOptions{
+		Mode: "run", // default mode
+	}
+
+	if info == nil || info.Options == nil {
+		return opts
+	}
+
+	optMap := info.Options.AsMap()
+
+	// Parse execution mode
+	if mode, ok := optMap["mode"].(string); ok {
+		switch mode {
+		case "run", "aot", "binary":
+			opts.Mode = mode
+		}
+	}
+
+	// Parse binary path
+	if binary, ok := optMap["binary"].(string); ok {
+		opts.Binary = binary
+	}
+
+	// Support legacy use-aot option
+	if useAot, ok := optMap["use-aot"].(bool); ok && useAot {
+		opts.Mode = "aot"
+	}
+
+	return opts
 }
 
 // GetPluginInfo returns metadata about this plugin.

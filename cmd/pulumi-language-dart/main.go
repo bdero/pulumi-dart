@@ -24,6 +24,7 @@ package main
 
 import (
 	"context"
+	"flag"
 	"fmt"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
@@ -57,8 +58,14 @@ func run(ctx context.Context) error {
 	//   --engine <address>
 	// We need to start a gRPC server for the CLI to connect to.
 
-	// Create the language host
-	host := NewDartLanguageHost()
+	var engineAddress string
+	var tracing string
+	flag.StringVar(&engineAddress, "engine", "", "Address of the Pulumi engine gRPC server")
+	flag.StringVar(&tracing, "tracing", "", "Tracing endpoint")
+	flag.Parse()
+
+	// Create the language host with the engine address
+	host := NewDartLanguageHostWithEngine(engineAddress)
 
 	// Create a gRPC server
 	port, done, err := rpcutil.Serve(0, nil, []func(*grpc.Server) error{

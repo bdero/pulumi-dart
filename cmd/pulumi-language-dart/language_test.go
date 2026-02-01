@@ -20,6 +20,7 @@ import (
 
 	pulumirpc "github.com/pulumi/pulumi/sdk/v3/proto/go"
 	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func TestNewDartLanguageHost(t *testing.T) {
@@ -247,5 +248,113 @@ func TestHost_Pack(t *testing.T) {
 
 	if resp.ArtifactPath == "" {
 		t.Error("ArtifactPath is empty")
+	}
+}
+
+func TestNewDartLanguageHostWithEngine(t *testing.T) {
+	host := NewDartLanguageHostWithEngine("localhost:9999")
+	if host == nil {
+		t.Fatal("NewDartLanguageHostWithEngine returned nil")
+	}
+	if host.engineAddress != "localhost:9999" {
+		t.Errorf("Expected engine address 'localhost:9999', got '%s'", host.engineAddress)
+	}
+	if host.executor == nil {
+		t.Error("executor is nil")
+	}
+	if host.deps == nil {
+		t.Error("deps is nil")
+	}
+}
+
+func TestParseRuntimeOptions_NilInfo(t *testing.T) {
+	opts := parseRuntimeOptions(nil)
+	if opts.Mode != "run" {
+		t.Errorf("Expected default mode 'run', got '%s'", opts.Mode)
+	}
+	if opts.Binary != "" {
+		t.Error("Expected empty binary path")
+	}
+}
+
+func TestParseRuntimeOptions_NilOptions(t *testing.T) {
+	info := &pulumirpc.ProgramInfo{
+		RootDirectory:    "/root",
+		ProgramDirectory: "/program",
+		Options:          nil,
+	}
+	opts := parseRuntimeOptions(info)
+	if opts.Mode != "run" {
+		t.Errorf("Expected default mode 'run', got '%s'", opts.Mode)
+	}
+}
+
+func TestParseRuntimeOptions_RunMode(t *testing.T) {
+	options, _ := structpb.NewStruct(map[string]interface{}{
+		"mode": "run",
+	})
+	info := &pulumirpc.ProgramInfo{
+		Options: options,
+	}
+	opts := parseRuntimeOptions(info)
+	if opts.Mode != "run" {
+		t.Errorf("Expected mode 'run', got '%s'", opts.Mode)
+	}
+}
+
+func TestParseRuntimeOptions_AotMode(t *testing.T) {
+	options, _ := structpb.NewStruct(map[string]interface{}{
+		"mode": "aot",
+	})
+	info := &pulumirpc.ProgramInfo{
+		Options: options,
+	}
+	opts := parseRuntimeOptions(info)
+	if opts.Mode != "aot" {
+		t.Errorf("Expected mode 'aot', got '%s'", opts.Mode)
+	}
+}
+
+func TestParseRuntimeOptions_BinaryMode(t *testing.T) {
+	options, _ := structpb.NewStruct(map[string]interface{}{
+		"mode":   "binary",
+		"binary": "bin/myapp",
+	})
+	info := &pulumirpc.ProgramInfo{
+		Options: options,
+	}
+	opts := parseRuntimeOptions(info)
+	if opts.Mode != "binary" {
+		t.Errorf("Expected mode 'binary', got '%s'", opts.Mode)
+	}
+	if opts.Binary != "bin/myapp" {
+		t.Errorf("Expected binary 'bin/myapp', got '%s'", opts.Binary)
+	}
+}
+
+func TestParseRuntimeOptions_LegacyUseAot(t *testing.T) {
+	options, _ := structpb.NewStruct(map[string]interface{}{
+		"use-aot": true,
+	})
+	info := &pulumirpc.ProgramInfo{
+		Options: options,
+	}
+	opts := parseRuntimeOptions(info)
+	if opts.Mode != "aot" {
+		t.Errorf("Expected mode 'aot' from legacy use-aot, got '%s'", opts.Mode)
+	}
+}
+
+func TestParseRuntimeOptions_InvalidMode(t *testing.T) {
+	options, _ := structpb.NewStruct(map[string]interface{}{
+		"mode": "invalid",
+	})
+	info := &pulumirpc.ProgramInfo{
+		Options: options,
+	}
+	opts := parseRuntimeOptions(info)
+	// Invalid mode should keep default "run"
+	if opts.Mode != "run" {
+		t.Errorf("Expected default mode 'run' for invalid mode, got '%s'", opts.Mode)
 	}
 }

@@ -59,6 +59,10 @@ type ExecutorConfig struct {
 	Stack string
 	// Organization is the organization name.
 	Organization string
+	// ExecutionMode is the mode for running the Dart program: "run", "aot", or "binary".
+	ExecutionMode string
+	// BinaryPath is the path to a pre-compiled binary (when ExecutionMode is "binary").
+	BinaryPath string
 }
 
 // ExecutorResult contains the result of running a Dart program.
@@ -71,16 +75,6 @@ type ExecutorResult struct {
 
 // Run executes the Dart program with the given configuration.
 func (e *DartExecutor) Run(ctx context.Context, config ExecutorConfig) (*ExecutorResult, error) {
-	// Find the dart executable
-	dartPath := e.dartPath
-	if dartPath == "" {
-		path, err := exec.LookPath("dart")
-		if err != nil {
-			return nil, fmt.Errorf("dart not found in PATH: %w", err)
-		}
-		dartPath = path
-	}
-
 	// Determine the program path
 	programPath := config.Program
 	if !filepath.IsAbs(programPath) {
@@ -91,18 +85,142 @@ func (e *DartExecutor) Run(ctx context.Context, config ExecutorConfig) (*Executo
 		}
 	}
 
-	// Build the command arguments
-	// We use "dart run" to execute the program
-	args := []string{"run"}
+	// Build the command based on execution mode
+	var cmd *exec.Cmd
+	var err error
 
-	// Add any additional args from config
+	switch config.ExecutionMode {
+	case "binary":
+		cmd, err = e.buildBinaryCommand(ctx, config, programPath)
+	case "aot":
+		cmd, err = e.buildAotCommand(ctx, config, programPath)
+	default: // "run" mode
+		cmd, err = e.buildRunCommand(ctx, config, programPath)
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Set up environment variables
+	env := e.buildEnvironment(config)
+	cmd.Env = env
+
+	// Direct stdout and stderr to the parent process
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// Run the command
+	err = cmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Program exited with non-zero status
+			return &ExecutorResult{
+				Error: fmt.Sprintf("program exited with code %d", exitErr.ExitCode()),
+				Bail:  false,
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to run Dart program: %w", err)
+	}
+
+	return &ExecutorResult{}, nil
+}
+
+// buildRunCommand creates a command for "dart run" execution mode.
+func (e *DartExecutor) buildRunCommand(ctx context.Context, config ExecutorConfig, programPath string) (*exec.Cmd, error) {
+	dartPath, err := e.findDart()
+	if err != nil {
+		return nil, fmt.Errorf("dart not found in PATH: %w", err)
+	}
+
+	// Build the command arguments using "dart run"
+	args := []string{"run"}
 	args = append(args, config.Args...)
 
-	// Create the command
 	cmd := exec.CommandContext(ctx, dartPath, args...)
 	cmd.Dir = programPath
 
-	// Set up environment variables
+	return cmd, nil
+}
+
+// buildAotCommand creates a command for AOT execution mode.
+// This compiles the Dart program to an AOT snapshot and runs it with dartaotruntime.
+func (e *DartExecutor) buildAotCommand(ctx context.Context, config ExecutorConfig, programPath string) (*exec.Cmd, error) {
+	dartPath, err := e.findDart()
+	if err != nil {
+		return nil, fmt.Errorf("dart not found in PATH: %w", err)
+	}
+
+	// First, compile to AOT snapshot
+	snapshotPath := filepath.Join(programPath, ".dart_tool", "pulumi_aot.aot")
+	mainFile := filepath.Join(programPath, "bin", "main.dart")
+
+	// Check if bin/main.dart exists, otherwise try lib/main.dart
+	if _, err := os.Stat(mainFile); os.IsNotExist(err) {
+		mainFile = filepath.Join(programPath, "lib", "main.dart")
+		if _, err := os.Stat(mainFile); os.IsNotExist(err) {
+			return nil, fmt.Errorf("cannot find main.dart in bin/ or lib/ directories")
+		}
+	}
+
+	// Ensure .dart_tool directory exists
+	if err := os.MkdirAll(filepath.Dir(snapshotPath), 0755); err != nil {
+		return nil, fmt.Errorf("failed to create .dart_tool directory: %w", err)
+	}
+
+	// Compile to AOT snapshot
+	compileCmd := exec.CommandContext(ctx, dartPath, "compile", "aot-snapshot", "-o", snapshotPath, mainFile)
+	compileCmd.Dir = programPath
+	compileCmd.Stdout = os.Stdout
+	compileCmd.Stderr = os.Stderr
+
+	if err := compileCmd.Run(); err != nil {
+		return nil, fmt.Errorf("failed to compile AOT snapshot: %w", err)
+	}
+
+	// Find dartaotruntime
+	dartaotruntime, err := e.findDartAotRuntime()
+	if err != nil {
+		return nil, fmt.Errorf("dartaotruntime not found: %w", err)
+	}
+
+	// Run the AOT snapshot
+	args := []string{snapshotPath}
+	args = append(args, config.Args...)
+
+	cmd := exec.CommandContext(ctx, dartaotruntime, args...)
+	cmd.Dir = programPath
+
+	return cmd, nil
+}
+
+// buildBinaryCommand creates a command for pre-compiled binary execution mode.
+func (e *DartExecutor) buildBinaryCommand(ctx context.Context, config ExecutorConfig, programPath string) (*exec.Cmd, error) {
+	if config.BinaryPath == "" {
+		return nil, fmt.Errorf("binary path not specified in runtime options")
+	}
+
+	// Resolve binary path relative to program directory
+	binaryPath := config.BinaryPath
+	if !filepath.IsAbs(binaryPath) {
+		binaryPath = filepath.Join(programPath, binaryPath)
+	}
+
+	// Verify binary exists
+	if _, err := os.Stat(binaryPath); os.IsNotExist(err) {
+		return nil, fmt.Errorf("binary not found at %s", binaryPath)
+	}
+
+	args := config.Args
+
+	cmd := exec.CommandContext(ctx, binaryPath, args...)
+	cmd.Dir = programPath
+
+	return cmd, nil
+}
+
+// buildEnvironment creates the environment variables for the Dart program.
+func (e *DartExecutor) buildEnvironment(config ExecutorConfig) []string {
 	env := os.Environ()
 
 	// Add Pulumi-specific environment variables
@@ -125,26 +243,36 @@ func (e *DartExecutor) Run(ctx context.Context, config ExecutorConfig) (*Executo
 		env = append(env, fmt.Sprintf("%s=%s", envKey, value))
 	}
 
-	cmd.Env = env
+	return env
+}
 
-	// Direct stdout and stderr to the parent process
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-
-	// Run the command
-	err := cmd.Run()
+// findDartAotRuntime returns the path to the dartaotruntime executable.
+func (e *DartExecutor) findDartAotRuntime() (string, error) {
+	// dartaotruntime is typically in the same directory as dart
+	dartPath, err := e.findDart()
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
-			// Program exited with non-zero status
-			return &ExecutorResult{
-				Error: fmt.Sprintf("program exited with code %d", exitErr.ExitCode()),
-				Bail:  false,
-			}, nil
-		}
-		return nil, fmt.Errorf("failed to run Dart program: %w", err)
+		return "", err
 	}
 
-	return &ExecutorResult{}, nil
+	// Try dartaotruntime in the same directory
+	dartDir := filepath.Dir(dartPath)
+	aotRuntimePath := filepath.Join(dartDir, "dartaotruntime")
+	if _, err := os.Stat(aotRuntimePath); err == nil {
+		return aotRuntimePath, nil
+	}
+
+	// On Windows, try with .exe extension
+	aotRuntimePath = filepath.Join(dartDir, "dartaotruntime.exe")
+	if _, err := os.Stat(aotRuntimePath); err == nil {
+		return aotRuntimePath, nil
+	}
+
+	// Try looking in PATH
+	if path, err := exec.LookPath("dartaotruntime"); err == nil {
+		return path, nil
+	}
+
+	return "", fmt.Errorf("dartaotruntime not found in dart directory or PATH")
 }
 
 // GetDartVersion returns the version of the Dart SDK.

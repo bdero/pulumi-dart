@@ -92,6 +92,8 @@ func TestExecutorConfig(t *testing.T) {
 		Project:        "my-project",
 		Stack:          "dev",
 		Organization:   "my-org",
+		ExecutionMode:  "run",
+		BinaryPath:     "",
 	}
 
 	if config.Program != "/path/to/program" {
@@ -102,6 +104,123 @@ func TestExecutorConfig(t *testing.T) {
 	}
 	if config.Parallel != 4 {
 		t.Error("Parallel not set correctly")
+	}
+	if config.ExecutionMode != "run" {
+		t.Error("ExecutionMode not set correctly")
+	}
+}
+
+func TestExecutorConfig_BinaryMode(t *testing.T) {
+	config := ExecutorConfig{
+		Program:       "/path/to/program",
+		ExecutionMode: "binary",
+		BinaryPath:    "bin/myapp",
+	}
+
+	if config.ExecutionMode != "binary" {
+		t.Error("ExecutionMode not set correctly")
+	}
+	if config.BinaryPath != "bin/myapp" {
+		t.Error("BinaryPath not set correctly")
+	}
+}
+
+func TestExecutorConfig_AotMode(t *testing.T) {
+	config := ExecutorConfig{
+		Program:       "/path/to/program",
+		ExecutionMode: "aot",
+	}
+
+	if config.ExecutionMode != "aot" {
+		t.Error("ExecutionMode not set correctly for AOT")
+	}
+}
+
+func TestBuildEnvironment(t *testing.T) {
+	executor := NewDartExecutor()
+
+	config := ExecutorConfig{
+		MonitorAddress: "localhost:1234",
+		EngineAddress:  "localhost:5678",
+		Project:        "my-project",
+		Stack:          "dev",
+		Organization:   "my-org",
+		Parallel:       4,
+		DryRun:         true,
+		Config: map[string]string{
+			"myapp:key1":       "value1",
+			"myapp:nested:key": "value2",
+		},
+	}
+
+	env := executor.buildEnvironment(config)
+
+	// Check that required env vars are present
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := splitEnvVar(e)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	if envMap["PULUMI_MONITOR"] != "localhost:1234" {
+		t.Error("PULUMI_MONITOR not set correctly")
+	}
+	if envMap["PULUMI_ENGINE"] != "localhost:5678" {
+		t.Error("PULUMI_ENGINE not set correctly")
+	}
+	if envMap["PULUMI_PROJECT"] != "my-project" {
+		t.Error("PULUMI_PROJECT not set correctly")
+	}
+	if envMap["PULUMI_STACK"] != "dev" {
+		t.Error("PULUMI_STACK not set correctly")
+	}
+	if envMap["PULUMI_DRY_RUN"] != "true" {
+		t.Error("PULUMI_DRY_RUN not set correctly")
+	}
+	if envMap["PULUMI_CONFIG_MYAPP_KEY1"] != "value1" {
+		t.Error("Config key not transformed correctly")
+	}
+}
+
+// splitEnvVar splits an environment variable string into key and value
+func splitEnvVar(env string) []string {
+	for i := 0; i < len(env); i++ {
+		if env[i] == '=' {
+			return []string{env[:i], env[i+1:]}
+		}
+	}
+	return []string{env}
+}
+
+func TestBuildBinaryCommand_MissingPath(t *testing.T) {
+	executor := NewDartExecutor()
+
+	config := ExecutorConfig{
+		Program:       "/path/to/program",
+		ExecutionMode: "binary",
+		BinaryPath:    "", // Empty path
+	}
+
+	_, err := executor.buildBinaryCommand(nil, config, "/path/to/program")
+	if err == nil {
+		t.Error("Expected error for missing binary path")
+	}
+}
+
+func TestBuildBinaryCommand_NonExistent(t *testing.T) {
+	executor := NewDartExecutor()
+
+	config := ExecutorConfig{
+		Program:       "/path/to/program",
+		ExecutionMode: "binary",
+		BinaryPath:    "/nonexistent/binary",
+	}
+
+	_, err := executor.buildBinaryCommand(nil, config, "/path/to/program")
+	if err == nil {
+		t.Error("Expected error for non-existent binary")
 	}
 }
 
