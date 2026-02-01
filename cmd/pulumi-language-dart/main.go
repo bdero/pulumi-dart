@@ -1,0 +1,91 @@
+// Copyright 2026, Pulumi Corporation.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+// pulumi-language-dart is the Pulumi language host plugin for Dart.
+//
+// This plugin enables Pulumi to run programs written in Dart. It implements
+// the LanguageRuntime gRPC interface to:
+//   - Detect and validate Dart runtime installations
+//   - Execute Dart programs with the Pulumi SDK
+//   - Parse pubspec.yaml for dependencies
+//   - Generate Dart SDK code for providers
+package main
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/util/logging"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/util/rpcutil"
+	pulumirpc "github.com/pulumi/pulumi/sdk/v3/proto/go"
+	"google.golang.org/grpc"
+)
+
+// Version is set at build time.
+var Version string = "0.1.0-dev"
+
+func main() {
+	// Set up logging
+	logging.InitLogging(false, 0, false)
+
+	// Create a cancelable context
+	ctx := context.Background()
+
+	// Run the language host
+	if err := run(ctx); err != nil {
+		cmdutil.Exit(err)
+	}
+}
+
+func run(ctx context.Context) error {
+	// Parse command line arguments
+	// The Pulumi CLI passes arguments like:
+	//   --tracing <endpoint>
+	//   --logtostderr
+	//   --engine <address>
+	// We need to start a gRPC server for the CLI to connect to.
+
+	// Create the language host
+	host := NewDartLanguageHost()
+
+	// Create a gRPC server
+	port, done, err := rpcutil.Serve(0, nil, []func(*grpc.Server) error{
+		func(srv *grpc.Server) error {
+			pulumirpc.RegisterLanguageRuntimeServer(srv, host)
+			return nil
+		},
+	}, nil)
+	if err != nil {
+		return fmt.Errorf("failed to start language host: %w", err)
+	}
+
+	// Print the port to stdout so the CLI can connect
+	fmt.Printf("%d\n", port)
+
+	// Wait for the server to finish
+	if err := <-done; err != nil {
+		return fmt.Errorf("language host error: %w", err)
+	}
+
+	return nil
+}
+
+// version returns the version string for this plugin.
+func version() string {
+	if Version == "" {
+		return "0.1.0-dev"
+	}
+	return Version
+}
