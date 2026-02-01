@@ -5,6 +5,8 @@ import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart';
 
 import 'input.dart';
 import 'output.dart';
+import 'runtime/runtime.dart';
+import 'runtime/serialization.dart';
 
 /// Options for controlling resource behavior.
 ///
@@ -108,6 +110,11 @@ abstract class Resource {
   /// A completer that signals when the resource has been fully registered.
   final Completer<void> _registered = Completer<void>();
 
+  /// The resource ID from registration (used by CustomResource).
+  /// This is set by _register() before processOutputs() is called.
+  @protected
+  String? _registrationId;
+
   /// A future that completes when the resource has been fully registered.
   ///
   /// Await this future to ensure the resource is fully initialized before
@@ -167,39 +174,65 @@ abstract class Resource {
   /// 3. Calls RegisterResource on the ResourceMonitor
   /// 4. Processes the response to populate output properties
   Future<void> _register() async {
-    // For now, we'll implement a mock registration that sets up the URN.
-    // The actual gRPC call will be wired up when the Runtime is implemented.
-
     // Collect dependencies from all inputs
     final deps = await _collectDependencies(inputs);
 
-    // TODO: When Runtime is implemented, this will make the actual gRPC call:
-    // final monitor = Runtime.instance.monitor;
-    // final serializedInputs = await PropertySerializer.serialize(inputs);
-    // final request = RegisterResourceRequest()
-    //   ..type = _type
-    //   ..name = _name
-    //   ..custom = this is CustomResource
-    //   ..object = serializedInputs
-    //   ..parent = _opts?.parent?.urn ?? ''
-    //   ..protect = _opts?.protect ?? false
-    //   ..dependencies.addAll(deps);
-    // final response = await monitor.registerResource(request);
-    // urn = Output.of(response.urn);
-    // processOutputs(response.object);
+    // Check if Runtime is initialized (actual Pulumi execution)
+    if (Runtime.isInitialized) {
+      // Make the actual gRPC call to the ResourceMonitor
+      final monitor = Runtime.instance.monitor;
 
-    // Mock implementation for testing before Runtime is ready
-    final parentUrn = _opts?.parent != null
-        ? await _opts!.parent!.urn.future
-        : 'urn:pulumi:stack::project';
-    final mockUrn = '$parentUrn::$_type::$_name';
-    urn = Output.fromData(OutputData.known(
-      mockUrn,
-      dependencies: deps,
-    ));
+      // Serialize inputs to protobuf format
+      final serializedInputs = await PropertySerializer.serialize(inputs);
 
-    // Call processOutputs with empty struct for subclasses that need initialization
-    processOutputs(Struct());
+      // Add serialized dependencies to the collected dependencies
+      deps.addAll(serializedInputs.dependencies);
+
+      // Get parent URN if we have a parent
+      String? parentUrn;
+      if (_opts?.parent != null) {
+        parentUrn = await _opts!.parent!.urn.future;
+      }
+
+      // Register the resource with the Pulumi engine
+      final response = await monitor.registerResource(
+        type: _type,
+        name: _name,
+        custom: this is CustomResource,
+        inputs: serializedInputs.value.structValue,
+        parent: parentUrn,
+        protect: _opts?.protect ?? false,
+        dependencies: deps.toList(),
+        retainOnDelete: _opts?.retainOnDelete ?? false,
+        deletedWith: _opts?.deletedWith,
+        providerRef: _opts?.provider,
+      );
+
+      // Set the URN from the response
+      urn = Output.fromData(OutputData.known(
+        response.urn,
+        dependencies: deps,
+      ));
+
+      // Store the ID for CustomResource to use
+      _registrationId = response.id;
+
+      // Process the output properties from the response
+      processOutputs(response.object);
+    } else {
+      // Mock implementation for testing when Runtime is not initialized
+      final parentUrn = _opts?.parent != null
+          ? await _opts!.parent!.urn.future
+          : 'urn:pulumi:stack::project';
+      final mockUrn = '$parentUrn::$_type::$_name';
+      urn = Output.fromData(OutputData.known(
+        mockUrn,
+        dependencies: deps,
+      ));
+
+      // Call processOutputs with empty struct for subclasses that need initialization
+      processOutputs(Struct());
+    }
   }
 
   /// Processes the output properties returned from registration.
@@ -353,10 +386,12 @@ abstract class CustomResource extends Resource {
   @override
   void processOutputs(Struct properties) {
     super.processOutputs(properties);
-    // Extract ID from the response
-    // TODO: When integrated with actual registration, this will come from
-    // the RegisterResourceResponse.id field
-    id = Output.of(properties.fields['id']?.stringValue ?? '');
+    // Extract ID - preferring the _registrationId from the actual response,
+    // falling back to the 'id' field in properties for testing
+    final resourceId = _registrationId ??
+        properties.fields['id']?.stringValue ??
+        '';
+    id = Output.of(resourceId);
   }
 }
 
@@ -403,7 +438,8 @@ abstract class ComponentResource extends Resource {
 
   @override
   void processOutputs(Struct properties) {
-    // Component resources don't have provider-assigned outputs
+    super.processOutputs(properties);
+    // Component resources don't have provider-assigned outputs beyond the base
   }
 
   /// Registers outputs for this component resource.
@@ -422,14 +458,17 @@ abstract class ComponentResource extends Resource {
     // Wait for this resource to be registered first
     await registered;
 
-    // TODO: When Runtime is implemented:
-    // final monitor = Runtime.instance.monitor;
-    // await monitor.registerResourceOutputs(
-    //   RegisterResourceOutputsRequest()
-    //     ..urn = await urn.future
-    //     ..outputs = await PropertySerializer.serializeOutputMap(outputs),
-    // );
+    // Only make the gRPC call if Runtime is initialized
+    if (Runtime.isInitialized) {
+      final monitor = Runtime.instance.monitor;
+      final resourceUrn = await urn.future;
+      final serialized = await PropertySerializer.serializeOutputMap(outputs);
 
-    // For now, this is a no-op until Runtime is implemented
+      await monitor.registerResourceOutputs(
+        urn: resourceUrn,
+        outputs: serialized.value.structValue,
+      );
+    }
+    // When Runtime is not initialized (testing), this is a no-op
   }
 }
