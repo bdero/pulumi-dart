@@ -76,6 +76,25 @@ dart pub get
 dart test
 ```
 
+#### End-to-End Tests with Real Pulumi CLI
+
+Run full end-to-end tests that use the actual Pulumi CLI and pulumi-random provider:
+
+```bash
+# First, build the language host
+cd cmd/pulumi-language-dart
+go build
+
+# Run the E2E tests
+cd tests/integration
+PULUMI_DART_E2E=true dart test test/pulumi_cli_test.dart
+```
+
+These tests verify:
+- `pulumi preview` correctly shows resources to be created
+- `pulumi up` successfully creates resources with the random provider
+- `pulumi destroy` successfully removes resources
+
 ### Language Host Tests
 
 Run the Go language host tests:
