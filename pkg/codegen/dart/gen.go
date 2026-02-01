@@ -153,7 +153,7 @@ func (g *Generator) generatePubspec() ([]byte, error) {
 	}
 
 	buf.WriteString("\nenvironment:\n")
-	buf.WriteString("  sdk: '>=3.0.0 <4.0.0'\n")
+	buf.WriteString("  sdk: '>=3.8.0 <4.0.0'\n")
 
 	buf.WriteString("\ndependencies:\n")
 	buf.WriteString("  pulumi: ^0.1.0\n")

@@ -82,7 +82,7 @@ func TestGetRequiredPlugins_ValidPubspec(t *testing.T) {
 	pubspec := `name: test_project
 version: 1.0.0
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.8.0 <4.0.0'
 dependencies:
   pulumi: ^0.1.0
   pulumi_aws: ^5.0.0

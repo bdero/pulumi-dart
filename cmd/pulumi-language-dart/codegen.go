@@ -99,7 +99,7 @@ func generatePubspecYaml(targetDir string, project workspace.Project) error {
 	}
 
 	content.WriteString("\nenvironment:\n")
-	content.WriteString("  sdk: '>=3.0.0 <4.0.0'\n")
+	content.WriteString("  sdk: '>=3.8.0 <4.0.0'\n")
 
 	content.WriteString("\ndependencies:\n")
 	content.WriteString("  pulumi: ^0.1.0\n")

@@ -550,7 +550,7 @@ version: 4.15.0
 description: Pulumi provider SDK for random
 
 environment:
-  sdk: '>=3.0.0 <4.0.0'
+  sdk: '>=3.8.0 <4.0.0'
 
 dependencies:
   pulumi:
