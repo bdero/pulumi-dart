@@ -9,4 +9,5 @@ This project uses thicket to track work items. Run `thicket quickstart` for a qu
 Keep [the readme](README.md) up-to-date with instructions on how to build, test, run the project.
 
 ## Testing
-Write automated tests whenever you change behavior. Goal is 80% test coverage.
+Write automated tests whenever changing behavior. Goal is at least 80% test coverage.
+After making any change, always be sure to run all of the tests to verify that everything is working.
