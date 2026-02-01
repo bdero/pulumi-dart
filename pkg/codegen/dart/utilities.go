@@ -234,16 +234,24 @@ func typeToDart(t schema.Type, unwrapInputs bool) string {
 		return tokenToClassName(tt.Token)
 
 	case *schema.UnionType:
-		// For union types, use Object as Dart doesn't have native union support
-		// In the future, we could generate a sealed class for this
+		// For union types, we have several strategies:
+		// 1. If it's a two-element union where one is Optional, return the non-optional type
+		// 2. Otherwise, return Object as Dart doesn't have native union support
+		// Note: In the future, we could generate a sealed class for complex unions
 		if len(tt.ElementTypes) == 2 {
-			// Check if one is an optional type for optional handling
+			// Check if exactly one is an optional type
+			var nonOptionalType schema.Type
+			var hasOptional bool
 			for _, elem := range tt.ElementTypes {
 				if _, isOptional := elem.(*schema.OptionalType); isOptional {
-					continue
+					hasOptional = true
+				} else {
+					nonOptionalType = elem
 				}
-				// Return the non-optional type
-				return typeToDart(elem, unwrapInputs)
+			}
+			// Only return the non-optional type if one element was optional
+			if hasOptional && nonOptionalType != nil {
+				return typeToDart(nonOptionalType, unwrapInputs)
 			}
 		}
 		return "Object"
