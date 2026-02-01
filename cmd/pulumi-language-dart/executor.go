@@ -193,3 +193,11 @@ func (e *DartExecutor) ValidateDartInstallation() error {
 
 	return nil
 }
+
+// findDart returns the path to the dart executable.
+func (e *DartExecutor) findDart() (string, error) {
+	if e.dartPath != "" {
+		return e.dartPath, nil
+	}
+	return exec.LookPath("dart")
+}

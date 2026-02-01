@@ -17,6 +17,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"os/exec"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	pulumirpc "github.com/pulumi/pulumi/sdk/v3/proto/go"
@@ -129,18 +130,108 @@ func (h *DartLanguageHost) InstallDependencies(
 	})
 }
 
-// RuntimeOptionsPrompts returns prompts for runtime configuration.
-// Note: This method may not exist in all Pulumi SDK versions.
-// Uncomment when supported by the SDK.
-/*
-func (h *DartLanguageHost) RuntimeOptionsPrompts(
-	ctx context.Context,
-	req *pulumirpc.RuntimeOptionsRequest,
-) (*pulumirpc.RuntimeOptionsResponse, error) {
-	// No prompts needed for Dart
-	return &pulumirpc.RuntimeOptionsResponse{}, nil
+// RunPlugin executes a plugin program asynchronously.
+//
+// This is used for running Pulumi plugins (like analyzers) written in Dart.
+func (h *DartLanguageHost) RunPlugin(
+	req *pulumirpc.RunPluginRequest,
+	server pulumirpc.LanguageRuntime_RunPluginServer,
+) error {
+	// Get the program path from ProgramInfo
+	programPath := req.Pwd
+	if req.Info != nil && req.Info.ProgramDirectory != "" {
+		programPath = req.Info.ProgramDirectory
+	}
+
+	// Find dart executable
+	dartPath, err := h.executor.findDart()
+	if err != nil {
+		return fmt.Errorf("dart not found: %w", err)
+	}
+
+	// Build command arguments
+	args := []string{"run"}
+	args = append(args, req.Args...)
+
+	// Create the command
+	ctx := server.Context()
+	cmd := exec.CommandContext(ctx, dartPath, args...)
+	cmd.Dir = programPath
+
+	// Set environment
+	cmd.Env = append(cmd.Env, req.Env...)
+
+	// Capture stdout and stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
+
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start plugin: %w", err)
+	}
+
+	// Stream stdout
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				_ = server.Send(&pulumirpc.RunPluginResponse{
+					Output: &pulumirpc.RunPluginResponse_Stdout{
+						Stdout: buf[:n],
+					},
+				})
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	// Stream stderr
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			n, err := stderr.Read(buf)
+			if n > 0 {
+				_ = server.Send(&pulumirpc.RunPluginResponse{
+					Output: &pulumirpc.RunPluginResponse_Stderr{
+						Stderr: buf[:n],
+					},
+				})
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	// Wait for the command to finish
+	err = cmd.Wait()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return server.Send(&pulumirpc.RunPluginResponse{
+				Output: &pulumirpc.RunPluginResponse_Exitcode{
+					Exitcode: int32(exitErr.ExitCode()),
+				},
+			})
+		}
+		return fmt.Errorf("plugin execution failed: %w", err)
+	}
+
+	// Send success exit code
+	return server.Send(&pulumirpc.RunPluginResponse{
+		Output: &pulumirpc.RunPluginResponse_Exitcode{
+			Exitcode: 0,
+		},
+	})
 }
-*/
 
 // About returns information about the Dart runtime.
 func (h *DartLanguageHost) About(

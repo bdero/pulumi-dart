@@ -1,0 +1,120 @@
+// Copyright 2026, Pulumi Corporation.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package main
+
+import (
+	"testing"
+)
+
+func TestNewDartExecutor(t *testing.T) {
+	executor := NewDartExecutor()
+	if executor == nil {
+		t.Fatal("NewDartExecutor returned nil")
+	}
+}
+
+func TestGetDartVersion(t *testing.T) {
+	executor := NewDartExecutor()
+
+	version, err := executor.GetDartVersion()
+	if err != nil {
+		t.Skipf("Skipping test because Dart may not be installed: %v", err)
+	}
+
+	if version == "" {
+		t.Error("Dart version is empty")
+	}
+
+	t.Logf("Found Dart version: %s", version)
+}
+
+func TestValidateDartInstallation(t *testing.T) {
+	executor := NewDartExecutor()
+
+	err := executor.ValidateDartInstallation()
+	if err != nil {
+		t.Skipf("Skipping test because Dart may not be installed or is < 3.0: %v", err)
+	}
+}
+
+func TestFindDart(t *testing.T) {
+	executor := NewDartExecutor()
+
+	path, err := executor.findDart()
+	if err != nil {
+		t.Skipf("Skipping test because Dart may not be installed: %v", err)
+	}
+
+	if path == "" {
+		t.Error("Dart path is empty")
+	}
+
+	t.Logf("Found Dart at: %s", path)
+}
+
+func TestFindDart_WithCustomPath(t *testing.T) {
+	executor := &DartExecutor{
+		dartPath: "/custom/dart/path",
+	}
+
+	path, err := executor.findDart()
+	if err != nil {
+		t.Fatalf("findDart failed: %v", err)
+	}
+
+	if path != "/custom/dart/path" {
+		t.Errorf("Expected custom path, got %s", path)
+	}
+}
+
+func TestExecutorConfig(t *testing.T) {
+	config := ExecutorConfig{
+		Program:        "/path/to/program",
+		Pwd:            "/path/to/pwd",
+		Args:           []string{"--arg1", "--arg2"},
+		Config:         map[string]string{"key": "value"},
+		DryRun:         true,
+		Parallel:       4,
+		MonitorAddress: "localhost:1234",
+		EngineAddress:  "localhost:5678",
+		Project:        "my-project",
+		Stack:          "dev",
+		Organization:   "my-org",
+	}
+
+	if config.Program != "/path/to/program" {
+		t.Error("Program not set correctly")
+	}
+	if config.DryRun != true {
+		t.Error("DryRun not set correctly")
+	}
+	if config.Parallel != 4 {
+		t.Error("Parallel not set correctly")
+	}
+}
+
+func TestExecutorResult(t *testing.T) {
+	result := ExecutorResult{
+		Error: "test error",
+		Bail:  true,
+	}
+
+	if result.Error != "test error" {
+		t.Error("Error not set correctly")
+	}
+	if result.Bail != true {
+		t.Error("Bail not set correctly")
+	}
+}
