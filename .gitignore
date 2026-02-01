@@ -43,5 +43,7 @@ Thumbs.db
 dist/
 bin/
 
-# Generated provider SDKs (keep README.md)
+# Generated provider SDKs
 providers/*/
+# Track pulumi_random as reference implementation
+!providers/pulumi_random/
