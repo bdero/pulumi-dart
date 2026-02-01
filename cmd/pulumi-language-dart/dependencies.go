@@ -115,6 +115,10 @@ func extractVersion(versionSpec interface{}) string {
 }
 
 // InstallDependencies runs `dart pub get` to install dependencies.
+//
+// This verifies that Dart is installed and meets the minimum version requirement
+// (3.0.0+), then runs `dart pub get` to install all dependencies defined in
+// pubspec.yaml. Output is streamed to the provided callback function.
 func (d *DependencyManager) InstallDependencies(
 	ctx context.Context,
 	directory string,
@@ -125,21 +129,147 @@ func (d *DependencyManager) InstallDependencies(
 		return fmt.Errorf("dart not found in PATH: %w", err)
 	}
 
+	// Verify Dart version meets minimum requirements
+	if err := d.verifyDartVersion(dartPath, output); err != nil {
+		return err
+	}
+
+	// Verify pubspec.yaml exists
+	pubspecPath := filepath.Join(directory, "pubspec.yaml")
+	if _, err := os.Stat(pubspecPath); os.IsNotExist(err) {
+		return fmt.Errorf("pubspec.yaml not found in %s", directory)
+	}
+
 	output(fmt.Sprintf("Installing Dart dependencies in %s...", directory))
 
 	cmd := exec.CommandContext(ctx, dartPath, "pub", "get")
 	cmd.Dir = directory
 
-	// Stream output
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
+	// Capture stdout and stderr to stream to the output callback
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %w", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %w", err)
+	}
 
-	if err := cmd.Run(); err != nil {
+	// Start the command
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("failed to start 'dart pub get': %w", err)
+	}
+
+	// Stream stdout
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := stdout.Read(buf)
+			if n > 0 {
+				output(string(buf[:n]))
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	// Stream stderr
+	go func() {
+		buf := make([]byte, 1024)
+		for {
+			n, err := stderr.Read(buf)
+			if n > 0 {
+				output(string(buf[:n]))
+			}
+			if err != nil {
+				break
+			}
+		}
+	}()
+
+	// Wait for the command to finish
+	if err := cmd.Wait(); err != nil {
 		return fmt.Errorf("failed to run 'dart pub get': %w", err)
 	}
 
 	output("Dependencies installed successfully.")
 	return nil
+}
+
+// verifyDartVersion checks that the Dart SDK version meets the minimum requirement.
+func (d *DependencyManager) verifyDartVersion(dartPath string, output func(string)) error {
+	cmd := exec.Command(dartPath, "--version")
+	versionOutput, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to get Dart version: %w", err)
+	}
+
+	versionStr := strings.TrimSpace(string(versionOutput))
+	output(fmt.Sprintf("Found %s", versionStr))
+
+	// Parse version - output format: "Dart SDK version: 3.x.x (stable) ..."
+	version := extractDartVersion(versionStr)
+	if version == "" {
+		return fmt.Errorf("could not parse Dart version from: %s", versionStr)
+	}
+
+	// Check minimum version (3.0.0)
+	if !isVersionAtLeast(version, "3.0.0") {
+		return fmt.Errorf("Dart 3.0.0 or higher is required, found %s", version)
+	}
+
+	return nil
+}
+
+// extractDartVersion extracts the version number from Dart's --version output.
+func extractDartVersion(output string) string {
+	// Output format: "Dart SDK version: 3.x.x (stable) ..."
+	parts := strings.Fields(output)
+	for i, part := range parts {
+		if part == "version:" && i+1 < len(parts) {
+			return parts[i+1]
+		}
+	}
+	return ""
+}
+
+// isVersionAtLeast checks if version is at least minVersion.
+// Uses simple string comparison which works for semantic versions.
+func isVersionAtLeast(version, minVersion string) bool {
+	// Split versions into parts
+	vParts := strings.Split(version, ".")
+	minParts := strings.Split(minVersion, ".")
+
+	// Compare each part
+	for i := 0; i < len(minParts) && i < len(vParts); i++ {
+		// Extract numeric part (handle versions like "3.11.0-276.0.dev")
+		vNum := extractNumericPart(vParts[i])
+		minNum := extractNumericPart(minParts[i])
+
+		if vNum > minNum {
+			return true
+		}
+		if vNum < minNum {
+			return false
+		}
+	}
+
+	// If all compared parts are equal, version is at least minVersion
+	return len(vParts) >= len(minParts)
+}
+
+// extractNumericPart extracts the leading numeric part from a version component.
+func extractNumericPart(s string) int {
+	num := 0
+	for _, c := range s {
+		if c >= '0' && c <= '9' {
+			num = num*10 + int(c-'0')
+		} else {
+			break
+		}
+	}
+	return num
 }
 
 // GetProgramDependencies returns the list of resolved dependencies from pubspec.lock.

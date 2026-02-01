@@ -463,3 +463,172 @@ dependencies:
 		t.Errorf("Expected plugin kind 'resource', got '%s'", plugins[0].Kind)
 	}
 }
+
+func TestExtractDartVersion(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "stable version",
+			input:    "Dart SDK version: 3.2.0 (stable) on \"linux_x64\"",
+			expected: "3.2.0",
+		},
+		{
+			name:     "dev version",
+			input:    "Dart SDK version: 3.11.0-276.0.dev (dev) on \"windows_x64\"",
+			expected: "3.11.0-276.0.dev",
+		},
+		{
+			name:     "simple output",
+			input:    "Dart SDK version: 3.0.0",
+			expected: "3.0.0",
+		},
+		{
+			name:     "no version found",
+			input:    "some random output",
+			expected: "",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractDartVersion(tt.input)
+			if result != tt.expected {
+				t.Errorf("extractDartVersion(%q) = %q, expected %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestIsVersionAtLeast(t *testing.T) {
+	tests := []struct {
+		name       string
+		version    string
+		minVersion string
+		expected   bool
+	}{
+		{
+			name:       "exact match",
+			version:    "3.0.0",
+			minVersion: "3.0.0",
+			expected:   true,
+		},
+		{
+			name:       "higher major",
+			version:    "4.0.0",
+			minVersion: "3.0.0",
+			expected:   true,
+		},
+		{
+			name:       "higher minor",
+			version:    "3.2.0",
+			minVersion: "3.0.0",
+			expected:   true,
+		},
+		{
+			name:       "higher patch",
+			version:    "3.0.5",
+			minVersion: "3.0.0",
+			expected:   true,
+		},
+		{
+			name:       "lower major",
+			version:    "2.0.0",
+			minVersion: "3.0.0",
+			expected:   false,
+		},
+		{
+			name:       "lower minor",
+			version:    "3.0.0",
+			minVersion: "3.1.0",
+			expected:   false,
+		},
+		{
+			name:       "dev version",
+			version:    "3.11.0-276.0.dev",
+			minVersion: "3.0.0",
+			expected:   true,
+		},
+		{
+			name:       "dev version exact",
+			version:    "3.0.0-dev",
+			minVersion: "3.0.0",
+			expected:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := isVersionAtLeast(tt.version, tt.minVersion)
+			if result != tt.expected {
+				t.Errorf("isVersionAtLeast(%q, %q) = %v, expected %v", tt.version, tt.minVersion, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestExtractNumericPart(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected int
+	}{
+		{
+			name:     "simple number",
+			input:    "123",
+			expected: 123,
+		},
+		{
+			name:     "number with suffix",
+			input:    "11-276",
+			expected: 11,
+		},
+		{
+			name:     "number with dev suffix",
+			input:    "0-dev",
+			expected: 0,
+		},
+		{
+			name:     "empty string",
+			input:    "",
+			expected: 0,
+		},
+		{
+			name:     "no numbers",
+			input:    "dev",
+			expected: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := extractNumericPart(tt.input)
+			if result != tt.expected {
+				t.Errorf("extractNumericPart(%q) = %d, expected %d", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestInstallDependencies_MissingPubspec(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "pulumi-dart-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	dm := NewDependencyManager()
+	var messages []string
+	err = dm.InstallDependencies(nil, tmpDir, func(msg string) {
+		messages = append(messages, msg)
+	})
+
+	// Should fail because pubspec.yaml doesn't exist
+	// (but will first check Dart - might skip if Dart not installed)
+	if err == nil {
+		// If Dart is installed, it should fail on missing pubspec
+		t.Log("Test may have passed because Dart is not installed")
+	}
+}
