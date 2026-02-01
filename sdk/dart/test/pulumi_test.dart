@@ -217,6 +217,8 @@ void main() {
     });
 
     test('initializes runtime when monitorAddress provided', () async {
+      mockService.projectName = 'test-project';
+      mockService.stackName = 'test-stack';
       mockService.nextUrn =
           'urn:pulumi:stack::project::test:resource:TestResource::test';
       mockService.nextId = 'test-id';
@@ -235,8 +237,13 @@ void main() {
         stack: 'test-stack',
       );
 
-      // Verify resource was registered
-      expect(mockService.registeredResources, hasLength(1));
+      // Verify Stack resource + user resource were registered
+      expect(mockService.registeredResources, hasLength(2));
+      // First resource should be the Stack
+      expect(mockService.registeredResources[0].type, equals('pulumi:pulumi:Stack'));
+      expect(mockService.registeredResources[0].name, equals('test-project-test-stack'));
+      // Second resource should be the user's resource
+      expect(mockService.registeredResources[1].type, equals('test:resource:TestResource'));
     });
 
     test('runs in mock mode without monitorAddress', () async {
@@ -301,6 +308,9 @@ void main() {
     });
 
     test('registers stack outputs when runtime is initialized', () async {
+      mockService.projectName = 'test-project';
+      mockService.stackName = 'test-stack';
+
       await Pulumi.runWithOptions(
         (ctx) async {
           ctx.export('outputKey', Output.of('outputValue'));
@@ -310,13 +320,17 @@ void main() {
         stack: 'test-stack',
       );
 
-      // Verify outputs were registered
+      // Verify Stack resource was registered
+      expect(mockService.registeredResources, hasLength(1));
+      expect(mockService.registeredResources[0].type, equals('pulumi:pulumi:Stack'));
+
+      // Verify outputs were registered on the Stack resource
       expect(mockService.registeredOutputs, hasLength(1));
       final outputRequest = mockService.registeredOutputs.first;
       expect(
         outputRequest.urn,
         equals(
-            'urn:pulumi:test-stack::test-project::pulumi:pulumi:Stack::test-stack'),
+            'urn:pulumi:test-stack::test-project::pulumi:pulumi:Stack::test-project-test-stack'),
       );
       expect(
         outputRequest.outputs.fields['outputKey']?.stringValue,

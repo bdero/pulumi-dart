@@ -39,6 +39,9 @@ class PulumiContext {
   /// Internal list of tracked resource registrations.
   final List<Future<void>> _trackedRegistrations = [];
 
+  /// The registered stack URN (populated after stack resource registration).
+  String? _stackUrn;
+
   PulumiContext._({
     required this.project,
     required this.stack,
@@ -229,6 +232,11 @@ class Pulumi {
       // Set as current context
       _currentContext = context;
 
+      // Register the Stack resource with the Pulumi engine
+      if (runtimeInitialized) {
+        await _registerStackResource(context);
+      }
+
       try {
         // Execute user callback
         await callback(context);
@@ -248,9 +256,9 @@ class Pulumi {
           await Future.delayed(Duration.zero);
         }
 
-        // Register stack exports
-        if (context._exports.isNotEmpty && runtimeInitialized) {
-          await _registerStackExports(context._exports);
+        // Register stack exports on the previously registered Stack resource
+        if (context._exports.isNotEmpty && context._stackUrn != null) {
+          await _registerStackExports(context);
         }
       } catch (e, stackTrace) {
         // Report error to engine if available
@@ -288,21 +296,38 @@ class Pulumi {
     }
   }
 
-  /// Registers stack exports with the Pulumi engine.
+  /// Registers the root Stack resource with the Pulumi engine.
   ///
-  /// Stack exports are registered as outputs on the root stack resource.
-  static Future<void> _registerStackExports(
-    Map<String, Output<Object?>> exports,
-  ) async {
-    if (exports.isEmpty) return;
-
+  /// This is required before stack outputs can be registered. The Stack
+  /// resource is a component resource that represents the root of the
+  /// resource tree.
+  static Future<void> _registerStackResource(PulumiContext context) async {
     final runtime = Runtime.instance;
     final monitor = runtime.monitor;
 
-    // Get the root resource URN (the stack itself)
-    // The stack URN follows the pattern: urn:pulumi:stack::project::pulumi:pulumi:Stack::stackname
-    final stackUrn =
-        'urn:pulumi:${runtime.stack}::${runtime.project}::pulumi:pulumi:Stack::${runtime.stack}';
+    // Register the Stack as a component resource (not custom)
+    // The name follows the pattern: {project}-{stack}
+    final response = await monitor.registerResource(
+      type: 'pulumi:pulumi:Stack',
+      name: '${runtime.project}-${runtime.stack}',
+      custom: false,
+    );
+
+    // Store the URN for later use when registering outputs
+    context._stackUrn = response.urn;
+  }
+
+  /// Registers stack exports with the Pulumi engine.
+  ///
+  /// Stack exports are registered as outputs on the root stack resource.
+  static Future<void> _registerStackExports(PulumiContext context) async {
+    final exports = context._exports;
+    if (exports.isEmpty) return;
+
+    final stackUrn = context._stackUrn;
+    if (stackUrn == null) return;
+
+    final monitor = Runtime.instance.monitor;
 
     // Serialize exports to protobuf format
     final serialized = await PropertySerializer.serializeOutputMap(exports);

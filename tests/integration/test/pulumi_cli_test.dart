@@ -334,8 +334,8 @@ void main() {
             reason: 'Expected random provider resource in preview output.\nstdout: $stdout\nstderr: ${result.stderr}');
         expect(stdout, contains('e2e-test-string'),
             reason: 'Expected resource name in preview output');
-        expect(stdout, contains('1 to create'),
-            reason: 'Expected resource to be created');
+        expect(stdout, contains('2 to create'),
+            reason: 'Expected Stack + resource to be created');
       },
       skip: !runE2E
           ? 'Set PULUMI_DART_E2E=true to run end-to-end tests'
@@ -401,8 +401,8 @@ void main() {
             reason: 'Expected random provider resource in up output.\nstdout: $stdout\nstderr: ${result.stderr}');
         expect(stdout, contains('e2e-test-string'),
             reason: 'Expected resource name in up output');
-        expect(stdout, contains('1 created'),
-            reason: 'Expected resource to be created');
+        expect(stdout, contains('2 created'),
+            reason: 'Expected Stack + resource to be created');
 
         print('Successfully created resource');
       },
@@ -459,10 +459,10 @@ void main() {
           workingDir: projectDir,
         );
 
-        // Verify the resource was created (ignore exit code)
+        // Verify the Stack + resource was created (ignore exit code)
         var stdout = result.stdout as String;
-        expect(stdout, contains('1 created'),
-            reason: 'pulumi up failed to create resource: ${result.stderr}');
+        expect(stdout, contains('2 created'),
+            reason: 'pulumi up failed to create resources: ${result.stderr}');
 
         // Run pulumi destroy
         result = await runPulumiCommand(
@@ -470,10 +470,10 @@ void main() {
           workingDir: projectDir,
         );
 
-        // Verify the resource was destroyed
+        // Verify the Stack + resource was destroyed
         stdout = result.stdout as String;
-        expect(stdout, contains('1 deleted'),
-            reason: 'pulumi destroy failed to delete resource: ${result.stderr}');
+        expect(stdout, contains('2 deleted'),
+            reason: 'pulumi destroy failed to delete resources: ${result.stderr}');
 
         print('Successfully destroyed all resources');
       },

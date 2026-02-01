@@ -40,11 +40,26 @@ class MockResourceMonitorService
     resource.RegisterResourceRequest request,
   ) async {
     registeredResources.add(request);
+
+    // For Stack resources, generate the proper URN format
+    String urn;
+    if (request.type == 'pulumi:pulumi:Stack') {
+      // Stack URN format: urn:pulumi:{stack}::{project}::pulumi:pulumi:Stack::{project}-{stack}
+      // The name is already {project}-{stack}
+      urn = 'urn:pulumi:$stackName::$projectName::pulumi:pulumi:Stack::${request.name}';
+    } else {
+      urn = nextUrn;
+    }
+
     return resource.RegisterResourceResponse()
-      ..urn = nextUrn
+      ..urn = urn
       ..id = nextId
       ..object = nextProperties;
   }
+
+  // Configuration for Stack URN generation
+  String projectName = 'project';
+  String stackName = 'stack';
 
   @override
   Future<empty.Empty> registerResourceOutputs(
