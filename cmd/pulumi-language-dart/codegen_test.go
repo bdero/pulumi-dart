@@ -8,10 +8,133 @@ import (
 	"testing"
 )
 
-func TestGenerateProject_NotImplemented(t *testing.T) {
-	err := GenerateProject("/source", "/target", "test-project", false)
+func TestGenerateProject_Basic(t *testing.T) {
+	// Create a temporary output directory
+	targetDir, err := os.MkdirTemp("", "pulumi-dart-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(targetDir)
+
+	// Test with a minimal project JSON
+	projectJSON := `{
+		"name": "my-test-project",
+		"description": "A test Pulumi project"
+	}`
+
+	err = GenerateProject("", targetDir, projectJSON, false)
+	if err != nil {
+		t.Fatalf("GenerateProject failed: %v", err)
+	}
+
+	// Verify Pulumi.yaml was generated with correct content
+	pulumiYamlPath := filepath.Join(targetDir, "Pulumi.yaml")
+	pulumiYamlBytes, err := os.ReadFile(pulumiYamlPath)
+	if err != nil {
+		t.Fatalf("Failed to read Pulumi.yaml: %v", err)
+	}
+	pulumiYaml := string(pulumiYamlBytes)
+	if !strings.Contains(pulumiYaml, "name: my-test-project") {
+		t.Errorf("Pulumi.yaml missing project name, got: %s", pulumiYaml)
+	}
+	if !strings.Contains(pulumiYaml, "runtime: dart") {
+		t.Errorf("Pulumi.yaml missing runtime: dart, got: %s", pulumiYaml)
+	}
+	if !strings.Contains(pulumiYaml, "description: A test Pulumi project") {
+		t.Errorf("Pulumi.yaml missing description, got: %s", pulumiYaml)
+	}
+
+	// Verify pubspec.yaml was generated
+	pubspecPath := filepath.Join(targetDir, "pubspec.yaml")
+	pubspecBytes, err := os.ReadFile(pubspecPath)
+	if err != nil {
+		t.Fatalf("Failed to read pubspec.yaml: %v", err)
+	}
+	pubspec := string(pubspecBytes)
+	if !strings.Contains(pubspec, "name: my_test_project") {
+		t.Errorf("pubspec.yaml should have snake_case name, got: %s", pubspec)
+	}
+	if !strings.Contains(pubspec, "pulumi: ^0.1.0") {
+		t.Errorf("pubspec.yaml missing pulumi dependency, got: %s", pubspec)
+	}
+
+	// Verify bin/main.dart was generated
+	mainDartPath := filepath.Join(targetDir, "bin", "main.dart")
+	mainDartBytes, err := os.ReadFile(mainDartPath)
+	if err != nil {
+		t.Fatalf("Failed to read bin/main.dart: %v", err)
+	}
+	mainDart := string(mainDartBytes)
+	if !strings.Contains(mainDart, "import 'package:pulumi/pulumi.dart'") {
+		t.Errorf("bin/main.dart missing pulumi import, got: %s", mainDart)
+	}
+	if !strings.Contains(mainDart, "Pulumi.run") {
+		t.Errorf("bin/main.dart missing Pulumi.run, got: %s", mainDart)
+	}
+
+	// Verify analysis_options.yaml was generated
+	analysisPath := filepath.Join(targetDir, "analysis_options.yaml")
+	if _, err := os.Stat(analysisPath); os.IsNotExist(err) {
+		t.Errorf("analysis_options.yaml was not generated")
+	}
+}
+
+func TestGenerateProject_InvalidJSON(t *testing.T) {
+	targetDir, err := os.MkdirTemp("", "pulumi-dart-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(targetDir)
+
+	err = GenerateProject("", targetDir, "not valid json", false)
 	if err == nil {
-		t.Error("Expected error for not implemented feature")
+		t.Error("Expected error for invalid JSON")
+	}
+}
+
+func TestGenerateProject_PackageNameConversion(t *testing.T) {
+	targetDir, err := os.MkdirTemp("", "pulumi-dart-project")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(targetDir)
+
+	// Test project name with hyphens (should be converted to underscores)
+	projectJSON := `{"name": "my-project-name"}`
+
+	err = GenerateProject("", targetDir, projectJSON, false)
+	if err != nil {
+		t.Fatalf("GenerateProject failed: %v", err)
+	}
+
+	pubspecBytes, err := os.ReadFile(filepath.Join(targetDir, "pubspec.yaml"))
+	if err != nil {
+		t.Fatalf("Failed to read pubspec.yaml: %v", err)
+	}
+	if !strings.Contains(string(pubspecBytes), "name: my_project_name") {
+		t.Errorf("pubspec.yaml should convert hyphens to underscores, got: %s", string(pubspecBytes))
+	}
+}
+
+func TestToValidDartPackageName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"my-project", "my_project"},
+		{"MyProject", "myproject"},
+		{"my_project", "my_project"},
+		{"123project", "_123project"},
+		{"project-123", "project_123"},
+		{"", "pulumi_project"},
+		{"Project-Name-Here", "project_name_here"},
+	}
+
+	for _, test := range tests {
+		result := toValidDartPackageName(test.input)
+		if result != test.expected {
+			t.Errorf("toValidDartPackageName(%q) = %q, expected %q", test.input, result, test.expected)
+		}
 	}
 }
 
