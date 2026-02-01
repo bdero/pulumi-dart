@@ -303,3 +303,163 @@ dependencies:
 		t.Error("Expected error for missing pulumi dependency")
 	}
 }
+
+func TestGetRequiredPlugins_NestedProviderNames(t *testing.T) {
+	// Test that nested provider names like pulumi_azure_native work correctly
+	tmpDir, err := os.MkdirTemp("", "pulumi-dart-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pubspec := `name: test_project
+version: 1.0.0
+dependencies:
+  pulumi: ^0.1.0
+  pulumi_azure_native: ^2.0.0
+  pulumi_kubernetes: ^4.0.0
+`
+
+	err = os.WriteFile(filepath.Join(tmpDir, "pubspec.yaml"), []byte(pubspec), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dm := NewDependencyManager()
+	plugins, err := dm.GetRequiredPlugins(tmpDir)
+	if err != nil {
+		t.Fatalf("GetRequiredPlugins failed: %v", err)
+	}
+
+	if len(plugins) != 2 {
+		t.Errorf("Expected 2 plugins, got %d", len(plugins))
+	}
+
+	// Check that azure_native is correctly preserved (not just "azure")
+	foundAzureNative := false
+	foundKubernetes := false
+	for _, p := range plugins {
+		if p.Name == "azure_native" && p.Version == "2.0.0" {
+			foundAzureNative = true
+		}
+		if p.Name == "kubernetes" && p.Version == "4.0.0" {
+			foundKubernetes = true
+		}
+	}
+
+	if !foundAzureNative {
+		t.Error("Did not find azure_native plugin (should preserve full name after pulumi_)")
+	}
+	if !foundKubernetes {
+		t.Error("Did not find kubernetes plugin")
+	}
+}
+
+func TestGetRequiredPlugins_EmptyDependencies(t *testing.T) {
+	tmpDir, err := os.MkdirTemp("", "pulumi-dart-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pubspec := `name: test_project
+version: 1.0.0
+dependencies:
+  pulumi: ^0.1.0
+`
+
+	err = os.WriteFile(filepath.Join(tmpDir, "pubspec.yaml"), []byte(pubspec), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dm := NewDependencyManager()
+	plugins, err := dm.GetRequiredPlugins(tmpDir)
+	if err != nil {
+		t.Fatalf("GetRequiredPlugins failed: %v", err)
+	}
+
+	// Should return empty list (pulumi core SDK is not a plugin)
+	if len(plugins) != 0 {
+		t.Errorf("Expected 0 plugins (only core SDK), got %d", len(plugins))
+	}
+}
+
+func TestGetRequiredPlugins_GitDependency(t *testing.T) {
+	// Test that git dependencies are handled (version should be empty)
+	tmpDir, err := os.MkdirTemp("", "pulumi-dart-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pubspec := `name: test_project
+version: 1.0.0
+dependencies:
+  pulumi: ^0.1.0
+  pulumi_custom:
+    git:
+      url: https://github.com/example/pulumi_custom
+      ref: main
+`
+
+	err = os.WriteFile(filepath.Join(tmpDir, "pubspec.yaml"), []byte(pubspec), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dm := NewDependencyManager()
+	plugins, err := dm.GetRequiredPlugins(tmpDir)
+	if err != nil {
+		t.Fatalf("GetRequiredPlugins failed: %v", err)
+	}
+
+	if len(plugins) != 1 {
+		t.Errorf("Expected 1 plugin, got %d", len(plugins))
+	}
+
+	if len(plugins) > 0 {
+		if plugins[0].Name != "custom" {
+			t.Errorf("Expected plugin name 'custom', got '%s'", plugins[0].Name)
+		}
+		if plugins[0].Version != "" {
+			t.Errorf("Expected empty version for git dependency, got '%s'", plugins[0].Version)
+		}
+	}
+}
+
+func TestGetRequiredPlugins_PluginKind(t *testing.T) {
+	// Verify that plugins are returned with the correct kind
+	tmpDir, err := os.MkdirTemp("", "pulumi-dart-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	pubspec := `name: test_project
+version: 1.0.0
+dependencies:
+  pulumi: ^0.1.0
+  pulumi_aws: ^5.0.0
+`
+
+	err = os.WriteFile(filepath.Join(tmpDir, "pubspec.yaml"), []byte(pubspec), 0644)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	dm := NewDependencyManager()
+	plugins, err := dm.GetRequiredPlugins(tmpDir)
+	if err != nil {
+		t.Fatalf("GetRequiredPlugins failed: %v", err)
+	}
+
+	if len(plugins) != 1 {
+		t.Fatalf("Expected 1 plugin, got %d", len(plugins))
+	}
+
+	// Verify the plugin kind is ResourcePlugin
+	if plugins[0].Kind != "resource" {
+		t.Errorf("Expected plugin kind 'resource', got '%s'", plugins[0].Kind)
+	}
+}
