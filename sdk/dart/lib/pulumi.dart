@@ -19,6 +19,8 @@ library pulumi;
 // Core SDK types
 export 'src/output.dart';
 export 'src/input.dart';
+export 'src/resource.dart';
+export 'src/pulumi.dart';
 
 // Proto-generated gRPC clients (internal use only)
 export 'src/proto/pulumi/resource.pb.dart';
