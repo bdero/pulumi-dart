@@ -42,7 +42,7 @@ func TestAbout(t *testing.T) {
 	host := NewDartLanguageHost()
 	ctx := context.Background()
 
-	resp, err := host.About(ctx, &emptypb.Empty{})
+	resp, err := host.About(ctx, &pulumirpc.AboutRequest{})
 	if err != nil {
 		// Skip if Dart is not installed
 		t.Skipf("Skipping test because Dart may not be installed: %v", err)

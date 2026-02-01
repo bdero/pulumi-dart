@@ -250,6 +250,10 @@ func (g *Generator) generateMainLibrary() ([]byte, error) {
 
 	buf.WriteString("\n// Functions\n")
 	for _, function := range g.pkg.Functions {
+		// Skip provider-level methods (tokens like "pulumi:providers:xxx/yyy")
+		if strings.HasPrefix(function.Token, "pulumi:providers:") {
+			continue
+		}
 		name := tokenToModulePath(function.Token)
 		if name != "" {
 			buf.WriteString(fmt.Sprintf("export 'src/functions/%s.dart';\n", name))
@@ -312,6 +316,12 @@ func (g *Generator) generateFunctions() (map[string][]byte, error) {
 	files := make(map[string][]byte)
 
 	for _, function := range g.pkg.Functions {
+		// Skip provider-level methods (tokens like "pulumi:providers:xxx/yyy")
+		// These are special methods that reference provider types and need special handling
+		if strings.HasPrefix(function.Token, "pulumi:providers:") {
+			continue
+		}
+
 		content, err := generateFunction(g.pkg, function)
 		if err != nil {
 			return nil, fmt.Errorf("failed to generate function %s: %w", function.Token, err)

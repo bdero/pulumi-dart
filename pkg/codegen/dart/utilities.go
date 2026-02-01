@@ -8,6 +8,20 @@ import (
 	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
 )
 
+// resourceReservedNames contains property names that conflict with Resource base class members.
+// These names get suffixed with "Value" when used as property names.
+var resourceReservedNames = map[string]bool{
+	"inputs":           true, // conflicts with Resource.inputs getter
+	"processOutputs":   true, // conflicts with Resource.processOutputs method
+	"urn":              true, // conflicts with Resource.urn property
+	"registered":       true, // conflicts with Resource.registered future
+	"hashCode":         true, // conflicts with Object.hashCode
+	"runtimeType":      true, // conflicts with Object.runtimeType
+	"toString":         true, // conflicts with Object.toString()
+	"noSuchMethod":     true, // conflicts with Object.noSuchMethod
+	"name":             true, // conflicts with constructor parameter
+}
+
 // Dart reserved keywords that need escaping.
 var dartReservedWords = map[string]bool{
 	"abstract":   true,
@@ -194,11 +208,15 @@ func tokenToClassName(token string) string {
 func tokenToFunctionName(token string) string {
 	parts := strings.Split(token, ":")
 	if len(parts) < 3 {
-		return toCamelCase(token)
+		return makeValidIdentifier(toCamelCase(token))
 	}
-	// The last part is the name
+	// The last part is the name, but may contain submodule path (e.g., "random/terraformConfig")
 	name := parts[len(parts)-1]
-	return toCamelCase(name)
+	// If the name contains a slash, take only the part after the slash
+	if idx := strings.LastIndex(name, "/"); idx != -1 {
+		name = name[idx+1:]
+	}
+	return makeValidIdentifier(toCamelCase(name))
 }
 
 // tokenToModulePath extracts a module path from a Pulumi token.
@@ -351,4 +369,20 @@ func makeValidIdentifier(s string) string {
 	}
 
 	return s
+}
+
+// toResourcePropertyName converts a property name to a valid Dart identifier
+// that doesn't conflict with Resource base class members.
+func toResourcePropertyName(name string) string {
+	camelName := toCamelCase(name)
+	if resourceReservedNames[camelName] {
+		return camelName + "Value"
+	}
+	return camelName
+}
+
+// toResourceArgsPropertyName converts a property name to a valid Dart identifier
+// for use in Args classes (which don't inherit from Resource, so have fewer conflicts).
+func toResourceArgsPropertyName(name string) string {
+	return toCamelCase(name)
 }

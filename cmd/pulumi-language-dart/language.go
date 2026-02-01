@@ -289,7 +289,7 @@ func (h *DartLanguageHost) RunPlugin(
 // About returns information about the Dart runtime.
 func (h *DartLanguageHost) About(
 	ctx context.Context,
-	req *emptypb.Empty,
+	req *pulumirpc.AboutRequest,
 ) (*pulumirpc.AboutResponse, error) {
 	dartVersion, err := h.executor.GetDartVersion()
 	if err != nil {
@@ -300,6 +300,46 @@ func (h *DartLanguageHost) About(
 		Executable: "dart",
 		Version:    dartVersion,
 	}, nil
+}
+
+// Handshake is the first call made by the engine to a language host.
+func (h *DartLanguageHost) Handshake(
+	ctx context.Context,
+	req *pulumirpc.LanguageHandshakeRequest,
+) (*pulumirpc.LanguageHandshakeResponse, error) {
+	return &pulumirpc.LanguageHandshakeResponse{}, nil
+}
+
+// GetRequiredPackages returns the list of packages required by the Dart program.
+func (h *DartLanguageHost) GetRequiredPackages(
+	ctx context.Context,
+	req *pulumirpc.GetRequiredPackagesRequest,
+) (*pulumirpc.GetRequiredPackagesResponse, error) {
+	plugins, err := h.deps.GetRequiredPlugins(req.Info.ProgramDirectory)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get required packages: %w", err)
+	}
+
+	var result []*pulumirpc.PackageDependency
+	for _, p := range plugins {
+		result = append(result, &pulumirpc.PackageDependency{
+			Name:    p.Name,
+			Kind:    string(p.Kind),
+			Version: p.Version,
+		})
+	}
+
+	return &pulumirpc.GetRequiredPackagesResponse{
+		Packages: result,
+	}, nil
+}
+
+// RuntimeOptionsPrompts returns additional prompts to ask during `pulumi new`.
+func (h *DartLanguageHost) RuntimeOptionsPrompts(
+	ctx context.Context,
+	req *pulumirpc.RuntimeOptionsRequest,
+) (*pulumirpc.RuntimeOptionsResponse, error) {
+	return &pulumirpc.RuntimeOptionsResponse{}, nil
 }
 
 // GetProgramDependencies returns the dependencies for a Dart program.

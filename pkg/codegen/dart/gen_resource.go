@@ -64,11 +64,12 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 			buf.WriteString(fmt.Sprintf("  @Deprecated('%s')\n", escapeDartString(prop.DeprecationMessage)))
 		}
 		dartType := typeToDart(prop.Type, false)
+		propName := toResourcePropertyName(prop.Name)
 		// For optional output properties, use nullable type
 		if !prop.IsRequired() {
-			buf.WriteString(fmt.Sprintf("  late final Output<%s?> %s;\n\n", dartType, toCamelCase(prop.Name)))
+			buf.WriteString(fmt.Sprintf("  late final Output<%s?> %s;\n\n", dartType, propName))
 		} else {
-			buf.WriteString(fmt.Sprintf("  late final Output<%s> %s;\n\n", dartType, toCamelCase(prop.Name)))
+			buf.WriteString(fmt.Sprintf("  late final Output<%s> %s;\n\n", dartType, propName))
 		}
 	}
 
@@ -104,7 +105,7 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 	buf.WriteString("  void processOutputs(Struct properties) {\n")
 	buf.WriteString("    super.processOutputs(properties);\n")
 	for _, prop := range resource.Properties {
-		propName := toCamelCase(prop.Name)
+		propName := toResourcePropertyName(prop.Name)
 		buf.WriteString(generateOutputPropertyDeserialization(prop, propName))
 	}
 	buf.WriteString("  }\n")
