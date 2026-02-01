@@ -6,6 +6,7 @@ import 'package:pulumi/src/input.dart';
 import 'package:pulumi/src/output.dart';
 import 'package:pulumi/src/pulumi.dart';
 import 'package:pulumi/src/resource.dart';
+import 'package:pulumi/src/runtime/engine.dart';
 import 'package:pulumi/src/runtime/runtime.dart';
 
 import 'mock_monitor_service.dart';
@@ -395,13 +396,13 @@ void main() {
     });
   });
 
-  group('EngineService', () {
-    // Engine service tests would require a mock engine server
+  group('Engine', () {
+    // Engine tests are in engine_test.dart
     // For now, we just test that it can be created
     test('can be instantiated with connect', () {
       // This test just verifies the constructor doesn't throw
       // We don't actually connect since there's no server
-      expect(() => EngineService.connect('localhost:50051'), returnsNormally);
+      expect(() => Engine.connect('localhost:50051'), returnsNormally);
     });
   });
 }

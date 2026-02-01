@@ -1,14 +1,11 @@
 import 'dart:async';
 import 'dart:io' show Platform;
 
-import 'package:grpc/grpc.dart';
-
 import 'output.dart';
 import 'resource.dart';
+import 'runtime/engine.dart';
 import 'runtime/runtime.dart';
 import 'runtime/serialization.dart';
-import 'proto/pulumi/engine.pb.dart';
-import 'proto/pulumi/engine.pbgrpc.dart';
 
 /// The context passed to the user's Pulumi program callback.
 ///
@@ -85,91 +82,6 @@ class PulumiContext {
   /// Users don't typically need to call this directly.
   void trackResource(Resource resource) {
     _trackedRegistrations.add(resource.registered);
-  }
-}
-
-/// A client for the Pulumi Engine gRPC service.
-///
-/// The Engine service provides logging and root resource management.
-class EngineService {
-  final ClientChannel _channel;
-  final EngineClient _client;
-
-  EngineService._(this._channel, this._client);
-
-  /// Creates an EngineService connected to the given address.
-  factory EngineService.connect(String address, {bool secure = false}) {
-    final parts = address.split(':');
-    final host = parts[0];
-    final port = parts.length > 1 ? int.parse(parts[1]) : 50051;
-
-    final channel = ClientChannel(
-      host,
-      port: port,
-      options: ChannelOptions(
-        credentials: secure
-            ? const ChannelCredentials.secure()
-            : const ChannelCredentials.insecure(),
-      ),
-    );
-
-    final client = EngineClient(channel);
-    return EngineService._(channel, client);
-  }
-
-  /// Logs a message to the Pulumi engine.
-  Future<void> log(
-    LogSeverity severity,
-    String message, {
-    String? urn,
-    int? streamId,
-    bool? ephemeral,
-  }) async {
-    final request = LogRequest(
-      severity: severity,
-      message: message,
-      urn: urn,
-      streamId: streamId,
-      ephemeral: ephemeral,
-    );
-    await _client.log(request);
-  }
-
-  /// Logs a debug message.
-  Future<void> debug(String message, {String? urn}) =>
-      log(LogSeverity.DEBUG, message, urn: urn);
-
-  /// Logs an info message.
-  Future<void> info(String message, {String? urn}) =>
-      log(LogSeverity.INFO, message, urn: urn);
-
-  /// Logs a warning message.
-  Future<void> warning(String message, {String? urn}) =>
-      log(LogSeverity.WARNING, message, urn: urn);
-
-  /// Logs an error message.
-  Future<void> error(String message, {String? urn}) =>
-      log(LogSeverity.ERROR, message, urn: urn);
-
-  /// Gets the URN of the root resource.
-  Future<String> getRootResource() async {
-    final response = await _client.getRootResource(GetRootResourceRequest());
-    return response.urn;
-  }
-
-  /// Sets the URN of the root resource.
-  Future<void> setRootResource(String urn) async {
-    await _client.setRootResource(SetRootResourceRequest(urn: urn));
-  }
-
-  /// Shuts down the gRPC channel.
-  Future<void> shutdown() async {
-    await _channel.shutdown();
-  }
-
-  /// Terminates the gRPC channel immediately.
-  Future<void> terminate() async {
-    await _channel.terminate();
   }
 }
 
@@ -285,7 +197,7 @@ class Pulumi {
     bool isDryRun = false,
     String? organization,
   }) async {
-    EngineService? engine;
+    Engine? engine;
     bool runtimeInitialized = false;
 
     try {
@@ -303,7 +215,7 @@ class Pulumi {
 
       // Connect to engine if address is provided
       if (engineAddress != null && engineAddress.isNotEmpty) {
-        engine = EngineService.connect(engineAddress);
+        engine = Engine.connect(engineAddress);
       }
 
       // Create context
