@@ -1,0 +1,8 @@
+# Don't publish the lock file
+pubspec.lock
+
+# Don't publish coverage data
+coverage/
+
+# Don't publish test artifacts
+.dart_tool/

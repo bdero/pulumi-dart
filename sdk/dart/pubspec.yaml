@@ -1,8 +1,19 @@
 name: pulumi
 version: 0.1.0
-description: Pulumi SDK for Infrastructure as Code in Dart
-repository: https://github.com/example/pulumi-dart
+description: >
+  Pulumi SDK for Infrastructure as Code in Dart. Define, deploy, and manage
+  cloud infrastructure using Dart with full type safety and IDE support.
+repository: https://github.com/bdero/pulumi-dart
 homepage: https://pulumi.com
+issue_tracker: https://github.com/bdero/pulumi-dart/issues
+documentation: https://www.pulumi.com/docs/
+
+topics:
+  - infrastructure-as-code
+  - iac
+  - cloud
+  - devops
+  - pulumi
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -10,6 +21,7 @@ environment:
 dependencies:
   grpc: ^5.0.0
   protobuf: ^6.0.0
+  fixnum: ^1.1.0
   async: ^2.11.0
   collection: ^1.18.0
   meta: ^1.11.0
