@@ -1,6 +1,7 @@
 package dart
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
@@ -125,6 +126,89 @@ func TestTokenToModulePath(t *testing.T) {
 			}
 		})
 	}
+
+	// Test long token truncation (like GCP's very long type names)
+	t.Run("long token truncation", func(t *testing.T) {
+		longToken := "gcp:dataloss/preventionDeidentifyTemplateDeidentifyConfigInfoTypeTransformationsTransformationPrimitiveTransformationCryptoDeterministicConfig:PreventionDeidentifyTemplateDeidentifyConfigInfoTypeTransformationsTransformationPrimitiveTransformationCryptoDeterministicConfig"
+		result := tokenToModulePath(longToken)
+		if len(result) > maxFilenameLength {
+			t.Errorf("tokenToModulePath for long token should be truncated, got len=%d, want <= %d", len(result), maxFilenameLength)
+		}
+		// Verify it still has a meaningful prefix
+		if !strings.HasPrefix(result, "dataloss_prevention") {
+			t.Errorf("truncated path should preserve meaningful prefix, got %q", result)
+		}
+	})
+}
+
+func TestTruncateFilename(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		maxLen   int
+		checkLen bool
+	}{
+		{
+			name:     "short name unchanged",
+			input:    "short_name",
+			checkLen: false,
+		},
+		{
+			name:     "long name truncated",
+			input:    "this_is_a_very_long_filename_that_exceeds_the_maximum_allowed_length_and_should_be_truncated_with_a_hash_suffix_to_ensure_uniqueness",
+			checkLen: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := truncateFilename(tt.input)
+			if tt.checkLen {
+				if len(result) > maxFilenameLength {
+					t.Errorf("truncateFilename(%q) = %q (len=%d), want len <= %d", tt.input, result, len(result), maxFilenameLength)
+				}
+				// Verify hash suffix is present
+				if !containsHash(result) {
+					t.Errorf("truncateFilename(%q) = %q, expected hash suffix", tt.input, result)
+				}
+			} else {
+				if result != tt.input {
+					t.Errorf("truncateFilename(%q) = %q, want unchanged", tt.input, result)
+				}
+			}
+		})
+	}
+
+	// Test that different long inputs produce different outputs
+	t.Run("uniqueness", func(t *testing.T) {
+		input1 := "this_is_a_very_long_filename_that_exceeds_the_maximum_allowed_length_abc"
+		input2 := "this_is_a_very_long_filename_that_exceeds_the_maximum_allowed_length_xyz"
+		// Make inputs long enough to trigger truncation
+		input1 = input1 + "_extra_padding_to_make_this_exceed_the_limit"
+		input2 = input2 + "_extra_padding_to_make_this_exceed_the_limit"
+		result1 := truncateFilename(input1)
+		result2 := truncateFilename(input2)
+		if result1 == result2 {
+			t.Errorf("truncateFilename should produce different outputs for different inputs: %q vs %q", result1, result2)
+		}
+	})
+}
+
+func containsHash(s string) bool {
+	// Check if the string ends with an underscore followed by 8 hex characters
+	if len(s) < 9 {
+		return false
+	}
+	suffix := s[len(s)-9:]
+	if suffix[0] != '_' {
+		return false
+	}
+	for _, c := range suffix[1:] {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			return false
+		}
+	}
+	return true
 }
 
 func TestTypeToDart(t *testing.T) {

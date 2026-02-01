@@ -1,12 +1,21 @@
 package dart
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"regexp"
 	"strings"
 	"unicode"
 
 	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
 )
+
+// maxFilenameLength is the maximum length for generated filenames.
+// This is needed because Windows has a 260 character path limit, and some
+// providers (like GCP) have very long type names that can exceed this limit.
+// We use 100 characters as a safe maximum for the filename part (excluding
+// extension and directory path).
+const maxFilenameLength = 100
 
 // resourceReservedNames contains property names that conflict with Resource base class members.
 // These names get suffixed with "Value" when used as property names.
@@ -220,10 +229,12 @@ func tokenToFunctionName(token string) string {
 }
 
 // tokenToModulePath extracts a module path from a Pulumi token.
+// If the resulting path exceeds maxFilenameLength, it is truncated and
+// a hash suffix is appended to ensure uniqueness.
 func tokenToModulePath(token string) string {
 	parts := strings.Split(token, ":")
 	if len(parts) < 3 {
-		return ToSnakeCase(token)
+		return truncateFilename(ToSnakeCase(token))
 	}
 
 	// Get the module part (second element) and the name (last element)
@@ -234,7 +245,29 @@ func tokenToModulePath(token string) string {
 	module = strings.ReplaceAll(module, "/", "_")
 
 	// Convert each part to snake_case separately, then join
-	return ToSnakeCase(module) + "_" + ToSnakeCase(name)
+	result := ToSnakeCase(module) + "_" + ToSnakeCase(name)
+
+	return truncateFilename(result)
+}
+
+// truncateFilename truncates a filename to maxFilenameLength characters.
+// If truncation is needed, it appends a hash suffix to ensure uniqueness.
+func truncateFilename(name string) string {
+	if len(name) <= maxFilenameLength {
+		return name
+	}
+
+	// Generate a short hash of the original name for uniqueness
+	hash := sha256.Sum256([]byte(name))
+	hashSuffix := "_" + hex.EncodeToString(hash[:])[:8]
+
+	// Truncate the name to fit the hash suffix within maxFilenameLength
+	truncateAt := maxFilenameLength - len(hashSuffix)
+	if truncateAt < 0 {
+		truncateAt = 0
+	}
+
+	return name[:truncateAt] + hashSuffix
 }
 
 // tokenToImportPath generates an import path for a type token.
