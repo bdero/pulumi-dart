@@ -39,9 +39,11 @@ func TestToCamelCase(t *testing.T) {
 		{"hello_world", "helloWorld"},
 		{"hello-world", "helloWorld"},
 		{"hello world", "helloWorld"},
-		{"HelloWorld", "helloworld"},
-		{"hello", "hello"},
-		{"HELLO", "hello"},
+		{"HelloWorld", "helloworld"},          // PascalCase gets lowercased first char
+		{"hello", "hello"},                     // Single lowercase word preserved
+		{"helloWorld", "helloWorld"},           // Already camelCase - preserved
+		{"getAvailabilityZones", "getAvailabilityZones"}, // Already camelCase - preserved
+		{"HELLO", "hello"},                     // All caps gets lowercased
 		{"", ""},
 		{"class", "class_"}, // Reserved word
 		{"async", "async_"}, // Reserved word
@@ -65,8 +67,10 @@ func TestToPascalCase(t *testing.T) {
 		{"hello_world", "HelloWorld"},
 		{"hello-world", "HelloWorld"},
 		{"hello world", "HelloWorld"},
-		{"helloWorld", "Helloworld"},
-		{"hello", "Hello"},
+		{"helloWorld", "HelloWorld"},           // camelCase gets first char uppercased, rest preserved
+		{"getAvailabilityZones", "GetAvailabilityZones"}, // camelCase preserved
+		{"MyResource", "MyResource"},           // Already PascalCase - preserved
+		{"hello", "Hello"},                     // Single word gets uppercased
 		{"", ""},
 	}
 
@@ -88,7 +92,8 @@ func TestTokenToClassName(t *testing.T) {
 		{"aws:s3/bucket:Bucket", "Bucket"},
 		{"aws:ec2:Instance", "Instance"},
 		{"pulumi:pulumi:Resource", "Resource"},
-		{"pkg:mod:MyResource", "Myresource"},
+		{"pkg:mod:MyResource", "MyResource"},  // PascalCase preserved
+		{"pkg:mod:my_resource", "MyResource"}, // snake_case converted
 		{"simple", "Simple"},
 	}
 

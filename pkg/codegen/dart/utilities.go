@@ -98,11 +98,25 @@ func ToSnakeCase(s string) string {
 }
 
 // toCamelCase converts a string to camelCase.
+// If the string has no separators and already starts with a lowercase letter,
+// it is assumed to be already in camelCase and is returned as-is (preserving
+// the casing of subsequent characters).
 func toCamelCase(s string) string {
 	// Split on common separators
 	parts := regexp.MustCompile(`[-_\s]+`).Split(s, -1)
 	if len(parts) == 0 {
 		return ""
+	}
+
+	// If there's only one part and it already starts with lowercase,
+	// assume it's already camelCase and preserve it
+	if len(parts) == 1 && len(s) > 0 && unicode.IsLower(rune(s[0])) {
+		name := s
+		// Handle reserved words
+		if dartReservedWords[name] {
+			return name + "_"
+		}
+		return name
 	}
 
 	var result strings.Builder
@@ -132,11 +146,24 @@ func toCamelCase(s string) string {
 }
 
 // toPascalCase converts a string to PascalCase.
+// If the string has no separators, it simply capitalizes the first letter
+// and preserves the rest of the casing (handles both camelCase and PascalCase input).
 func toPascalCase(s string) string {
+	if len(s) == 0 {
+		return ""
+	}
+
 	// Split on common separators
 	parts := regexp.MustCompile(`[-_\s]+`).Split(s, -1)
 	if len(parts) == 0 {
 		return ""
+	}
+
+	// If there's only one part with no separators, just capitalize the first letter
+	// This handles both "getAvailabilityZones" -> "GetAvailabilityZones"
+	// and "MyClass" -> "MyClass"
+	if len(parts) == 1 {
+		return strings.ToUpper(string(s[0])) + s[1:]
 	}
 
 	var result strings.Builder

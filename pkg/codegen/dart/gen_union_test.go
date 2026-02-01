@@ -82,7 +82,7 @@ func TestGenerateUnionType(t *testing.T) {
 		result := string(content)
 
 		// Check object type variant
-		if !strings.Contains(result, "factory StringOrMyObject.myobject(Myobject value) = StringOrMyObjectMyobject;") {
+		if !strings.Contains(result, "factory StringOrMyObject.myobject(MyObject value) = StringOrMyObjectMyObject;") {
 			t.Error("Expected object type factory constructor not found")
 		}
 
@@ -186,12 +186,12 @@ func TestGetUnionVariantName(t *testing.T) {
 		{
 			"object type",
 			&schema.ObjectType{Token: "test:index:MyType"},
-			"Mytype",
+			"MyType",
 		},
 		{
 			"enum type",
 			&schema.EnumType{Token: "test:index:MyEnum", ElementType: schema.StringType},
-			"Myenum",
+			"MyEnum",
 		},
 		{
 			"array of strings",
@@ -216,7 +216,7 @@ func TestGetUnionVariantName(t *testing.T) {
 		{
 			"token type without underlying",
 			&schema.TokenType{Token: "test:custom:MyToken"},
-			"Mytoken",
+			"MyToken",
 		},
 	}
 
@@ -334,7 +334,7 @@ func TestGenerateUnionTypeName(t *testing.T) {
 					&schema.ObjectType{Token: "test:index:MyType"},
 				},
 			},
-			expected: "StringOrMytype",
+			expected: "StringOrMyType",
 		},
 		{
 			name: "empty union",

@@ -46,7 +46,7 @@ func TestGenerateResource(t *testing.T) {
 		}
 
 		// Check class declaration - extends CustomResource
-		if !strings.Contains(result, "class Myresource extends CustomResource {") {
+		if !strings.Contains(result, "class MyResource extends CustomResource {") {
 			t.Error("Expected CustomResource class declaration not found")
 		}
 
@@ -59,18 +59,18 @@ func TestGenerateResource(t *testing.T) {
 		}
 
 		// Check _args field
-		if !strings.Contains(result, "final MyresourceArgs _args;") {
+		if !strings.Contains(result, "final MyResourceArgs _args;") {
 			t.Error("Expected _args field not found")
 		}
 
 		// Check constructor
-		if !strings.Contains(result, "Myresource(") {
+		if !strings.Contains(result, "MyResource(") {
 			t.Error("Expected constructor not found")
 		}
 		if !strings.Contains(result, "String name,") {
 			t.Error("Expected name parameter in constructor not found")
 		}
-		if !strings.Contains(result, "MyresourceArgs args,") {
+		if !strings.Contains(result, "MyResourceArgs args,") {
 			t.Error("Expected args parameter in constructor not found")
 		}
 		if !strings.Contains(result, "CustomResourceOptions? options,") {
@@ -131,7 +131,7 @@ func TestGenerateResource(t *testing.T) {
 		result := string(content)
 
 		// Check extends ComponentResource
-		if !strings.Contains(result, "class Mycomponent extends ComponentResource {") {
+		if !strings.Contains(result, "class MyComponent extends ComponentResource {") {
 			t.Error("Expected ComponentResource class declaration not found")
 		}
 
@@ -280,13 +280,13 @@ func TestGenerateResource(t *testing.T) {
 		}
 
 		// Check Input<NestedType> for input property
-		if !strings.Contains(result, "final Input<Nestedtype> config;") {
-			t.Error("Expected Input<Nestedtype> property not found")
+		if !strings.Contains(result, "final Input<NestedType> config;") {
+			t.Error("Expected Input<NestedType> property not found")
 		}
 
 		// Check Output<NestedType> for output property
-		if !strings.Contains(result, "late final Output<Nestedtype> result;") {
-			t.Error("Expected Output<Nestedtype> output property not found")
+		if !strings.Contains(result, "late final Output<NestedType> result;") {
+			t.Error("Expected Output<NestedType> output property not found")
 		}
 	})
 
@@ -320,13 +320,13 @@ func TestGenerateResource(t *testing.T) {
 		}
 
 		// Check Input<MyEnum> for input property
-		if !strings.Contains(result, "final Input<Myenum> status;") {
-			t.Error("Expected Input<Myenum> property not found")
+		if !strings.Contains(result, "final Input<MyEnum> status;") {
+			t.Error("Expected Input<MyEnum> property not found")
 		}
 
 		// Check Output<MyEnum> for output property
-		if !strings.Contains(result, "late final Output<Myenum> currentStatus;") {
-			t.Error("Expected Output<Myenum> output property not found")
+		if !strings.Contains(result, "late final Output<MyEnum> currentStatus;") {
+			t.Error("Expected Output<MyEnum> output property not found")
 		}
 	})
 }
@@ -359,7 +359,7 @@ func TestGenerateResourceArgsClass(t *testing.T) {
 		result := string(content)
 
 		// Check Args class declaration
-		if !strings.Contains(result, "class TestresourceArgs {") {
+		if !strings.Contains(result, "class TestResourceArgs {") {
 			t.Error("Expected Args class declaration not found")
 		}
 
@@ -394,7 +394,7 @@ func TestGenerateResourceArgsClass(t *testing.T) {
 		}
 
 		// Check documentation
-		if !strings.Contains(result, "/// Arguments for creating a Testresource resource.") {
+		if !strings.Contains(result, "/// Arguments for creating a TestResource resource.") {
 			t.Error("Expected Args class documentation not found")
 		}
 		if !strings.Contains(result, "/// The name.") {
@@ -420,7 +420,7 @@ func TestGenerateResourceArgsClass(t *testing.T) {
 		result := string(content)
 
 		// Check empty constructor
-		if !strings.Contains(result, "EmptyresourceArgs();") {
+		if !strings.Contains(result, "EmptyResourceArgs();") {
 			t.Error("Expected empty Args constructor not found")
 		}
 	})

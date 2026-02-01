@@ -30,7 +30,7 @@ func TestGenerateType(t *testing.T) {
 		result := string(content)
 
 		// Check class declaration
-		if !strings.Contains(result, "class Mytype {") {
+		if !strings.Contains(result, "class MyType {") {
 			t.Error("Expected class declaration not found")
 		}
 
@@ -48,7 +48,7 @@ func TestGenerateType(t *testing.T) {
 		}
 
 		// Check fromPropertyMap factory
-		if !strings.Contains(result, "factory Mytype.fromPropertyMap(Map<String, dynamic> properties)") {
+		if !strings.Contains(result, "factory MyType.fromPropertyMap(Map<String, dynamic> properties)") {
 			t.Error("Expected fromPropertyMap factory not found")
 		}
 
@@ -175,7 +175,7 @@ func TestGenerateType(t *testing.T) {
 		result := string(content)
 
 		// Check nested type reference
-		if !strings.Contains(result, "final Nestedtype nested;") {
+		if !strings.Contains(result, "final NestedType nested;") {
 			t.Error("Expected nested type reference not found")
 		}
 
@@ -207,7 +207,7 @@ func TestGenerateTypeArgs(t *testing.T) {
 		result := string(content)
 
 		// Check that Args class is generated
-		if !strings.Contains(result, "class MyinputtypeArgs {") {
+		if !strings.Contains(result, "class MyInputTypeArgs {") {
 			t.Error("Expected Args class not found")
 		}
 
@@ -378,7 +378,7 @@ func TestTypeToDartToken(t *testing.T) {
 			token: &schema.TokenType{
 				Token: "pulumi:custom:MyType",
 			},
-			expected: "Mytype",
+			expected: "MyType",
 		},
 	}
 
