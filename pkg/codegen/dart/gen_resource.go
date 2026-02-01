@@ -1,0 +1,219 @@
+package dart
+
+import (
+	"bytes"
+	"fmt"
+	"sort"
+	"strings"
+
+	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
+)
+
+// generateResource generates a Dart class for a Pulumi resource.
+func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, error) {
+	var buf bytes.Buffer
+
+	className := tokenToClassName(resource.Token)
+	argsClassName := className + "Args"
+
+	// File header
+	buf.WriteString(fmt.Sprintf("/// Generated resource class for %s.\n", resource.Token))
+	buf.WriteString("///\n")
+	if resource.Comment != "" {
+		for _, line := range strings.Split(resource.Comment, "\n") {
+			buf.WriteString(fmt.Sprintf("/// %s\n", line))
+		}
+	}
+	buf.WriteString("\n")
+
+	// Imports
+	buf.WriteString("import 'package:pulumi/pulumi.dart';\n")
+	buf.WriteString("import 'package:meta/meta.dart';\n")
+
+	// Collect imports for property types
+	imports := collectTypeImports(pkg, resource.InputProperties)
+	imports = append(imports, collectTypeImports(pkg, resource.Properties)...)
+	imports = dedupeStrings(imports)
+	for _, imp := range imports {
+		buf.WriteString(fmt.Sprintf("import '%s';\n", imp))
+	}
+	buf.WriteString("\n")
+
+	// Determine if this is a component resource or custom resource
+	isComponent := resource.IsComponent
+
+	// Generate the resource class
+	if resource.DeprecationMessage != "" {
+		buf.WriteString(fmt.Sprintf("@Deprecated('%s')\n", escapeDartString(resource.DeprecationMessage)))
+	}
+
+	baseClass := "CustomResource"
+	if isComponent {
+		baseClass = "ComponentResource"
+	}
+
+	buf.WriteString(fmt.Sprintf("class %s extends %s {\n", className, baseClass))
+
+	// Generate output properties
+	for _, prop := range resource.Properties {
+		if prop.Comment != "" {
+			buf.WriteString(fmt.Sprintf("  /// %s\n", strings.ReplaceAll(prop.Comment, "\n", "\n  /// ")))
+		}
+		if prop.DeprecationMessage != "" {
+			buf.WriteString(fmt.Sprintf("  @Deprecated('%s')\n", escapeDartString(prop.DeprecationMessage)))
+		}
+		dartType := typeToDart(prop.Type, false)
+		buf.WriteString(fmt.Sprintf("  late final Output<%s> %s;\n\n", dartType, toCamelCase(prop.Name)))
+	}
+
+	// Private args field
+	buf.WriteString(fmt.Sprintf("  final %s _args;\n\n", argsClassName))
+
+	// Constructor
+	buf.WriteString(fmt.Sprintf("  /// Creates a new %s resource.\n", className))
+	buf.WriteString(fmt.Sprintf("  %s(\n", className))
+	buf.WriteString("    String name,\n")
+	buf.WriteString(fmt.Sprintf("    %s args, {\n", argsClassName))
+
+	if isComponent {
+		buf.WriteString("    ComponentResourceOptions? options,\n")
+	} else {
+		buf.WriteString("    CustomResourceOptions? options,\n")
+	}
+
+	buf.WriteString("  }) : _args = args,\n")
+	buf.WriteString(fmt.Sprintf("       super('%s', name, options);\n\n", resource.Token))
+
+	// Override inputs getter
+	buf.WriteString("  @override\n")
+	buf.WriteString("  Map<String, dynamic> get inputs => {\n")
+	for _, prop := range resource.InputProperties {
+		buf.WriteString(fmt.Sprintf("    '%s': _args.%s,\n", prop.Name, toCamelCase(prop.Name)))
+	}
+	buf.WriteString("  };\n\n")
+
+	// Override processOutputs method
+	buf.WriteString("  @override\n")
+	buf.WriteString("  @protected\n")
+	buf.WriteString("  void processOutputs(Map<String, dynamic> properties) {\n")
+	if !isComponent {
+		buf.WriteString("    super.processOutputs(properties);\n")
+	}
+	for _, prop := range resource.Properties {
+		dartType := typeToDart(prop.Type, false)
+		propName := toCamelCase(prop.Name)
+		buf.WriteString(fmt.Sprintf("    %s = Output.fromPropertyValue<%s>(properties['%s']);\n",
+			propName, dartType, prop.Name))
+	}
+	buf.WriteString("  }\n")
+
+	buf.WriteString("}\n\n")
+
+	// Generate the Args class
+	buf.WriteString(fmt.Sprintf("/// Arguments for creating a %s resource.\n", className))
+	buf.WriteString(fmt.Sprintf("class %s {\n", argsClassName))
+
+	// Separate required and optional properties
+	var requiredProps, optionalProps []*schema.Property
+	for _, prop := range resource.InputProperties {
+		if prop.IsRequired() {
+			requiredProps = append(requiredProps, prop)
+		} else {
+			optionalProps = append(optionalProps, prop)
+		}
+	}
+
+	// Generate property fields
+	for _, prop := range resource.InputProperties {
+		if prop.Comment != "" {
+			buf.WriteString(fmt.Sprintf("  /// %s\n", strings.ReplaceAll(prop.Comment, "\n", "\n  /// ")))
+		}
+		if prop.DeprecationMessage != "" {
+			buf.WriteString(fmt.Sprintf("  @Deprecated('%s')\n", escapeDartString(prop.DeprecationMessage)))
+		}
+		dartType := typeToDart(prop.Type, true)
+		if !prop.IsRequired() {
+			buf.WriteString(fmt.Sprintf("  final Input<%s>? %s;\n\n", dartType, toCamelCase(prop.Name)))
+		} else {
+			buf.WriteString(fmt.Sprintf("  final Input<%s> %s;\n\n", dartType, toCamelCase(prop.Name)))
+		}
+	}
+
+	// Constructor
+	if len(resource.InputProperties) > 0 {
+		buf.WriteString(fmt.Sprintf("  %s({\n", argsClassName))
+		for _, prop := range requiredProps {
+			buf.WriteString(fmt.Sprintf("    required this.%s,\n", toCamelCase(prop.Name)))
+		}
+		for _, prop := range optionalProps {
+			buf.WriteString(fmt.Sprintf("    this.%s,\n", toCamelCase(prop.Name)))
+		}
+		buf.WriteString("  });\n")
+	} else {
+		buf.WriteString(fmt.Sprintf("  %s();\n", argsClassName))
+	}
+
+	buf.WriteString("}\n")
+
+	return buf.Bytes(), nil
+}
+
+// collectTypeImports gathers import paths needed for property types.
+func collectTypeImports(pkg *schema.Package, props []*schema.Property) []string {
+	var imports []string
+	seen := make(map[string]bool)
+
+	for _, prop := range props {
+		collectTypeImportsFromType(pkg, prop.Type, &imports, seen)
+	}
+
+	sort.Strings(imports)
+	return imports
+}
+
+// collectTypeImportsFromType recursively collects imports from a type.
+func collectTypeImportsFromType(pkg *schema.Package, t schema.Type, imports *[]string, seen map[string]bool) {
+	switch tt := t.(type) {
+	case *schema.ArrayType:
+		collectTypeImportsFromType(pkg, tt.ElementType, imports, seen)
+	case *schema.MapType:
+		collectTypeImportsFromType(pkg, tt.ElementType, imports, seen)
+	case *schema.ObjectType:
+		if !seen[tt.Token] {
+			seen[tt.Token] = true
+			path := tokenToImportPath(tt.Token)
+			if path != "" {
+				*imports = append(*imports, path)
+			}
+		}
+	case *schema.EnumType:
+		if !seen[tt.Token] {
+			seen[tt.Token] = true
+			path := tokenToEnumImportPath(tt.Token)
+			if path != "" {
+				*imports = append(*imports, path)
+			}
+		}
+	case *schema.UnionType:
+		for _, element := range tt.ElementTypes {
+			collectTypeImportsFromType(pkg, element, imports, seen)
+		}
+	case *schema.InputType:
+		collectTypeImportsFromType(pkg, tt.ElementType, imports, seen)
+	case *schema.OptionalType:
+		collectTypeImportsFromType(pkg, tt.ElementType, imports, seen)
+	}
+}
+
+// dedupeStrings removes duplicate strings from a slice.
+func dedupeStrings(strs []string) []string {
+	seen := make(map[string]bool)
+	var result []string
+	for _, s := range strs {
+		if !seen[s] {
+			seen[s] = true
+			result = append(result, s)
+		}
+	}
+	return result
+}
