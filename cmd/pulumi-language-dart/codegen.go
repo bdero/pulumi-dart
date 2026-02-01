@@ -3,11 +3,15 @@ package main
 import (
 	"archive/tar"
 	"compress/gzip"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 
+	"github.com/example/pulumi-dart/pkg/codegen/dart"
+	"github.com/hashicorp/hcl/v2"
+	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
 	codegenrpc "github.com/pulumi/pulumi/sdk/v3/proto/go/codegen"
 )
 
@@ -26,18 +30,87 @@ func GenerateProject(
 // GeneratePackage generates a Dart SDK for a Pulumi package schema.
 func GeneratePackage(
 	directory string,
-	schema string,
+	schemaJSON string,
 	extraFiles map[string][]byte,
 	loaderTarget string,
 	localDependencies map[string]string,
 ) ([]*codegenrpc.Diagnostic, error) {
-	// TODO: Implement Dart code generation from Pulumi schema
-	// This will be a significant implementation that generates:
-	// - Resource classes
-	// - Function wrappers
-	// - Type definitions
-	// - pubspec.yaml
-	return nil, fmt.Errorf("package generation not yet implemented")
+	var diagnostics []*codegenrpc.Diagnostic
+
+	// Parse the schema JSON into a PackageSpec
+	var spec schema.PackageSpec
+	if err := json.Unmarshal([]byte(schemaJSON), &spec); err != nil {
+		return nil, fmt.Errorf("failed to parse schema JSON: %w", err)
+	}
+
+	// Bind the schema spec to create a Package
+	// We use nil loader since we're only generating SDK code and don't need to
+	// resolve external references for this use case
+	pkg, bindDiags, err := schema.BindSpec(spec, nil)
+	if err != nil {
+		return nil, fmt.Errorf("failed to bind schema: %w", err)
+	}
+
+	// Convert binding diagnostics to RPC diagnostics
+	for _, diag := range bindDiags {
+		diagnostics = append(diagnostics, &codegenrpc.Diagnostic{
+			Severity: convertSeverity(diag.Severity),
+			Summary:  diag.Summary,
+			Detail:   diag.Detail,
+		})
+	}
+
+	// Configure the generator options
+	options := dart.GeneratorOptions{}
+
+	// Use local dependencies if provided (for development/testing)
+	if len(localDependencies) > 0 {
+		// Local dependencies could be used to override package paths
+		// for testing with local SDK versions
+		_ = localDependencies // Reserved for future use
+	}
+
+	// Generate the Dart package
+	files, err := dart.GeneratePackage(pkg, options)
+	if err != nil {
+		return diagnostics, fmt.Errorf("failed to generate Dart package: %w", err)
+	}
+
+	// Write extra files first (overlays)
+	for path, content := range extraFiles {
+		outPath := filepath.Join(directory, path)
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			return diagnostics, fmt.Errorf("failed to create directory for %s: %w", path, err)
+		}
+		if err := os.WriteFile(outPath, content, 0o644); err != nil {
+			return diagnostics, fmt.Errorf("failed to write extra file %s: %w", path, err)
+		}
+	}
+
+	// Write generated files to the output directory
+	for path, content := range files {
+		outPath := filepath.Join(directory, path)
+		if err := os.MkdirAll(filepath.Dir(outPath), 0o755); err != nil {
+			return diagnostics, fmt.Errorf("failed to create directory for %s: %w", path, err)
+		}
+		if err := os.WriteFile(outPath, content, 0o644); err != nil {
+			return diagnostics, fmt.Errorf("failed to write file %s: %w", path, err)
+		}
+	}
+
+	return diagnostics, nil
+}
+
+// convertSeverity converts an HCL diagnostic severity to RPC diagnostic severity.
+func convertSeverity(sev hcl.DiagnosticSeverity) codegenrpc.DiagnosticSeverity {
+	switch sev {
+	case hcl.DiagError:
+		return codegenrpc.DiagnosticSeverity_DIAG_ERROR
+	case hcl.DiagWarning:
+		return codegenrpc.DiagnosticSeverity_DIAG_WARNING
+	default:
+		return codegenrpc.DiagnosticSeverity_DIAG_INVALID
+	}
 }
 
 // GenerateProgram converts PCL (Pulumi Configuration Language) to Dart code.

@@ -13,10 +13,151 @@ func TestGenerateProject_NotImplemented(t *testing.T) {
 	}
 }
 
-func TestGeneratePackage_NotImplemented(t *testing.T) {
-	_, err := GeneratePackage("/output", "{}", nil, "", nil)
+func TestGeneratePackage_InvalidSchema(t *testing.T) {
+	// Test with invalid JSON
+	_, err := GeneratePackage("/output", "not json", nil, "", nil)
 	if err == nil {
-		t.Error("Expected error for not implemented feature")
+		t.Error("Expected error for invalid JSON")
+	}
+}
+
+func TestGeneratePackage_MinimalSchema(t *testing.T) {
+	// Create a temporary output directory
+	outDir, err := os.MkdirTemp("", "pulumi-dart-gen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(outDir)
+
+	// Minimal valid schema
+	schema := `{
+		"name": "test",
+		"version": "1.0.0"
+	}`
+
+	diagnostics, err := GeneratePackage(outDir, schema, nil, "", nil)
+	if err != nil {
+		t.Fatalf("GeneratePackage failed: %v", err)
+	}
+
+	// Check that no errors were reported
+	for _, diag := range diagnostics {
+		if diag.Severity == 1 { // DIAG_ERROR
+			t.Errorf("Unexpected error diagnostic: %s", diag.Summary)
+		}
+	}
+
+	// Verify pubspec.yaml was generated
+	pubspecPath := filepath.Join(outDir, "pubspec.yaml")
+	if _, err := os.Stat(pubspecPath); os.IsNotExist(err) {
+		t.Errorf("pubspec.yaml was not generated")
+	}
+
+	// Verify analysis_options.yaml was generated
+	analysisPath := filepath.Join(outDir, "analysis_options.yaml")
+	if _, err := os.Stat(analysisPath); os.IsNotExist(err) {
+		t.Errorf("analysis_options.yaml was not generated")
+	}
+
+	// Verify main library file was generated
+	libPath := filepath.Join(outDir, "lib", "pulumi_test.dart")
+	if _, err := os.Stat(libPath); os.IsNotExist(err) {
+		t.Errorf("main library file was not generated")
+	}
+}
+
+func TestGeneratePackage_WithResource(t *testing.T) {
+	// Create a temporary output directory
+	outDir, err := os.MkdirTemp("", "pulumi-dart-gen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(outDir)
+
+	// Schema with a simple resource
+	schema := `{
+		"name": "example",
+		"version": "1.0.0",
+		"resources": {
+			"example:index:Widget": {
+				"inputProperties": {
+					"widgetName": {
+						"type": "string"
+					}
+				},
+				"requiredInputs": ["widgetName"],
+				"properties": {
+					"widgetId": {
+						"type": "string"
+					},
+					"widgetName": {
+						"type": "string"
+					}
+				}
+			}
+		}
+	}`
+
+	diagnostics, err := GeneratePackage(outDir, schema, nil, "", nil)
+	if err != nil {
+		t.Fatalf("GeneratePackage failed: %v", err)
+	}
+
+	// Check that no errors were reported
+	for _, diag := range diagnostics {
+		if diag.Severity == 1 { // DIAG_ERROR
+			t.Errorf("Unexpected error diagnostic: %s", diag.Summary)
+		}
+	}
+
+	// Verify resource file was generated (token "example:index:Widget" -> "index_widget.dart")
+	resourcePath := filepath.Join(outDir, "lib", "src", "resources", "index_widget.dart")
+	if _, err := os.Stat(resourcePath); os.IsNotExist(err) {
+		t.Errorf("resource file was not generated at %s", resourcePath)
+	}
+}
+
+func TestGeneratePackage_WithExtraFiles(t *testing.T) {
+	// Create a temporary output directory
+	outDir, err := os.MkdirTemp("", "pulumi-dart-gen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(outDir)
+
+	// Minimal valid schema
+	schema := `{
+		"name": "test",
+		"version": "1.0.0"
+	}`
+
+	// Extra files (overlays)
+	extraFiles := map[string][]byte{
+		"README.md":         []byte("# Test Package"),
+		"lib/src/custom.dart": []byte("// Custom code"),
+	}
+
+	diagnostics, err := GeneratePackage(outDir, schema, extraFiles, "", nil)
+	if err != nil {
+		t.Fatalf("GeneratePackage failed: %v", err)
+	}
+
+	// Check that no errors were reported
+	for _, diag := range diagnostics {
+		if diag.Severity == 1 { // DIAG_ERROR
+			t.Errorf("Unexpected error diagnostic: %s", diag.Summary)
+		}
+	}
+
+	// Verify extra files were written
+	readmePath := filepath.Join(outDir, "README.md")
+	if _, err := os.Stat(readmePath); os.IsNotExist(err) {
+		t.Errorf("README.md was not written")
+	}
+
+	customPath := filepath.Join(outDir, "lib", "src", "custom.dart")
+	if _, err := os.Stat(customPath); os.IsNotExist(err) {
+		t.Errorf("lib/src/custom.dart was not written")
 	}
 }
 
@@ -121,4 +262,117 @@ func TestAddToTarball_NonExistent(t *testing.T) {
 	// This test verifies that addToTarball returns an error for non-existent paths
 	// We can't easily test this without creating a tar.Writer, so we'll rely on
 	// the PackProject tests to cover this path indirectly
+}
+
+func TestGeneratePackage_RandomLikeSchema(t *testing.T) {
+	// Create a temporary output directory
+	outDir, err := os.MkdirTemp("", "pulumi-dart-random")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(outDir)
+
+	// Read the test schema file
+	schemaBytes, err := os.ReadFile("testdata/random_schema.json")
+	if err != nil {
+		t.Fatalf("Failed to read test schema: %v", err)
+	}
+
+	diagnostics, err := GeneratePackage(outDir, string(schemaBytes), nil, "", nil)
+	if err != nil {
+		t.Fatalf("GeneratePackage failed: %v", err)
+	}
+
+	// Check that no fatal errors were reported (warnings are okay)
+	hasError := false
+	for _, diag := range diagnostics {
+		if diag.Severity == 1 { // DIAG_ERROR
+			hasError = true
+			t.Logf("Error diagnostic: %s", diag.Summary)
+		}
+	}
+	if hasError {
+		t.Errorf("Generation had error diagnostics")
+	}
+
+	// Verify core files were generated
+	coreFiles := []string{
+		"pubspec.yaml",
+		"analysis_options.yaml",
+		"lib/pulumi_random.dart",
+	}
+
+	for _, expectedFile := range coreFiles {
+		path := filepath.Join(outDir, expectedFile)
+		if _, err := os.Stat(path); os.IsNotExist(err) {
+			t.Errorf("Core file was not generated: %s", expectedFile)
+		}
+	}
+
+	// Verify at least some resources were generated
+	resourcesDir := filepath.Join(outDir, "lib", "src", "resources")
+	if _, err := os.Stat(resourcesDir); os.IsNotExist(err) {
+		t.Errorf("Resources directory was not created")
+	} else {
+		entries, err := os.ReadDir(resourcesDir)
+		if err != nil {
+			t.Errorf("Failed to read resources directory: %v", err)
+		} else if len(entries) == 0 {
+			t.Errorf("No resource files were generated")
+		} else {
+			t.Logf("Generated %d resource files", len(entries))
+			for _, e := range entries {
+				t.Logf("  - %s", e.Name())
+			}
+		}
+	}
+
+	// Verify at least some functions were generated
+	functionsDir := filepath.Join(outDir, "lib", "src", "functions")
+	if _, err := os.Stat(functionsDir); os.IsNotExist(err) {
+		t.Errorf("Functions directory was not created")
+	} else {
+		entries, err := os.ReadDir(functionsDir)
+		if err != nil {
+			t.Errorf("Failed to read functions directory: %v", err)
+		} else if len(entries) == 0 {
+			t.Errorf("No function files were generated")
+		} else {
+			t.Logf("Generated %d function files", len(entries))
+			for _, e := range entries {
+				t.Logf("  - %s", e.Name())
+			}
+		}
+	}
+
+	// Verify pubspec.yaml has correct content
+	pubspecBytes, err := os.ReadFile(filepath.Join(outDir, "pubspec.yaml"))
+	if err != nil {
+		t.Fatalf("Failed to read pubspec.yaml: %v", err)
+	}
+	pubspecContent := string(pubspecBytes)
+
+	if !contains(pubspecContent, "name: pulumi_random") {
+		t.Errorf("pubspec.yaml missing correct name")
+	}
+	if !contains(pubspecContent, "version: 4.15.0") {
+		t.Errorf("pubspec.yaml missing correct version")
+	}
+	if !contains(pubspecContent, "pulumi: ^0.1.0") {
+		t.Errorf("pubspec.yaml missing pulumi dependency")
+	}
+}
+
+// contains checks if a string contains a substring
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > 0 && containsHelper(s, substr))
+}
+
+func containsHelper(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }

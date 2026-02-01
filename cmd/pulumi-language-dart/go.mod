@@ -3,12 +3,16 @@ module github.com/example/pulumi-dart/cmd/pulumi-language-dart
 go 1.21
 
 require (
+	github.com/example/pulumi-dart/pkg/codegen/dart v0.0.0
+	github.com/hashicorp/hcl/v2 v2.17.0
 	github.com/pulumi/pulumi/pkg/v3 v3.98.0
 	github.com/pulumi/pulumi/sdk/v3 v3.100.0
 	google.golang.org/grpc v1.57.1
 	google.golang.org/protobuf v1.31.0
 	gopkg.in/yaml.v3 v3.0.1
 )
+
+replace github.com/example/pulumi-dart/pkg/codegen/dart => ../../pkg/codegen/dart
 
 require (
 	dario.cat/mergo v1.0.0 // indirect
@@ -40,7 +44,6 @@ require (
 	github.com/grpc-ecosystem/grpc-opentracing v0.0.0-20180507213350-8e809c8a8645 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
-	github.com/hashicorp/hcl/v2 v2.17.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/jbenet/go-context v0.0.0-20150711004518-d14ea06fba99 // indirect
 	github.com/kevinburke/ssh_config v1.2.0 // indirect

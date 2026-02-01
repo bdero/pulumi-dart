@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 
 	pulumirpc "github.com/pulumi/pulumi/sdk/v3/proto/go"
@@ -149,14 +151,53 @@ func TestHost_GeneratePackage(t *testing.T) {
 	host := NewDartLanguageHost()
 	ctx := context.Background()
 
+	// Create a temporary output directory
+	outDir, err := os.MkdirTemp("", "pulumi-dart-gen")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(outDir)
+
+	// Minimal valid schema
+	schema := `{
+		"name": "test",
+		"version": "1.0.0"
+	}`
+
+	req := &pulumirpc.GeneratePackageRequest{
+		Directory: outDir,
+		Schema:    schema,
+	}
+
+	resp, err := host.GeneratePackage(ctx, req)
+	if err != nil {
+		t.Fatalf("GeneratePackage failed: %v", err)
+	}
+
+	// Check response
+	if resp == nil {
+		t.Error("Expected non-nil response")
+	}
+
+	// Verify pubspec.yaml was generated
+	pubspecPath := filepath.Join(outDir, "pubspec.yaml")
+	if _, err := os.Stat(pubspecPath); os.IsNotExist(err) {
+		t.Errorf("pubspec.yaml was not generated")
+	}
+}
+
+func TestHost_GeneratePackage_InvalidSchema(t *testing.T) {
+	host := NewDartLanguageHost()
+	ctx := context.Background()
+
 	req := &pulumirpc.GeneratePackageRequest{
 		Directory: "/output",
-		Schema:    "{}",
+		Schema:    "not json",
 	}
 
 	_, err := host.GeneratePackage(ctx, req)
 	if err == nil {
-		t.Error("Expected error for not implemented feature")
+		t.Error("Expected error for invalid JSON schema")
 	}
 }
 

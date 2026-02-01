@@ -1,0 +1,216 @@
+{
+  "name": "random",
+  "version": "4.15.0",
+  "description": "A Pulumi package for generating random values",
+  "homepage": "https://pulumi.io",
+  "repository": "https://github.com/pulumi/pulumi-random",
+  "publisher": "Pulumi",
+  "resources": {
+    "random:index/randomId:RandomId": {
+      "description": "Generates a random identifier",
+      "inputProperties": {
+        "byteLength": {
+          "type": "integer",
+          "description": "The number of random bytes to produce"
+        },
+        "prefix": {
+          "type": "string",
+          "description": "Arbitrary string to prefix the output value with"
+        },
+        "keepers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Map of arbitrary values that, when changed, will trigger a new ID"
+        }
+      },
+      "requiredInputs": ["byteLength"],
+      "properties": {
+        "byteLength": {
+          "type": "integer"
+        },
+        "prefix": {
+          "type": "string"
+        },
+        "keepers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "b64Std": {
+          "type": "string",
+          "description": "The base64 encoded random string"
+        },
+        "b64Url": {
+          "type": "string",
+          "description": "The URL-safe base64 encoded random string"
+        },
+        "dec": {
+          "type": "string",
+          "description": "The decimal representation of the random string"
+        },
+        "hex": {
+          "type": "string",
+          "description": "The hex-encoded random string"
+        }
+      },
+      "required": ["byteLength", "b64Std", "b64Url", "dec", "hex"]
+    },
+    "random:index/randomString:RandomString": {
+      "description": "Generates a random string",
+      "inputProperties": {
+        "length": {
+          "type": "integer",
+          "description": "The length of the string"
+        },
+        "upper": {
+          "type": "boolean",
+          "description": "Include uppercase characters"
+        },
+        "lower": {
+          "type": "boolean",
+          "description": "Include lowercase characters"
+        },
+        "numeric": {
+          "type": "boolean",
+          "description": "Include numeric characters"
+        },
+        "special": {
+          "type": "boolean",
+          "description": "Include special characters"
+        },
+        "overrideSpecial": {
+          "type": "string",
+          "description": "Override the special characters to use"
+        },
+        "minUpper": {
+          "type": "integer",
+          "description": "Minimum number of uppercase characters"
+        },
+        "minLower": {
+          "type": "integer",
+          "description": "Minimum number of lowercase characters"
+        },
+        "minNumeric": {
+          "type": "integer",
+          "description": "Minimum number of numeric characters"
+        },
+        "minSpecial": {
+          "type": "integer",
+          "description": "Minimum number of special characters"
+        },
+        "keepers": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          }
+        }
+      },
+      "requiredInputs": ["length"],
+      "properties": {
+        "length": {
+          "type": "integer"
+        },
+        "result": {
+          "type": "string",
+          "description": "The generated random string"
+        },
+        "upper": {
+          "type": "boolean"
+        },
+        "lower": {
+          "type": "boolean"
+        },
+        "numeric": {
+          "type": "boolean"
+        },
+        "special": {
+          "type": "boolean"
+        }
+      },
+      "required": ["length", "result"]
+    },
+    "random:index/randomPassword:RandomPassword": {
+      "description": "Generates a random password with configurable rules",
+      "inputProperties": {
+        "length": {
+          "type": "integer"
+        },
+        "special": {
+          "type": "boolean"
+        },
+        "upper": {
+          "type": "boolean"
+        },
+        "lower": {
+          "type": "boolean"
+        },
+        "numeric": {
+          "type": "boolean"
+        }
+      },
+      "requiredInputs": ["length"],
+      "properties": {
+        "length": {
+          "type": "integer"
+        },
+        "result": {
+          "type": "string",
+          "secret": true,
+          "description": "The generated password (secret)"
+        },
+        "bcryptHash": {
+          "type": "string",
+          "secret": true,
+          "description": "The bcrypt hash of the password"
+        }
+      },
+      "required": ["length", "result"]
+    }
+  },
+  "functions": {
+    "random:index/getRandomBytes:getRandomBytes": {
+      "description": "Get random bytes",
+      "inputs": {
+        "properties": {
+          "length": {
+            "type": "integer",
+            "description": "Number of bytes to generate"
+          }
+        },
+        "required": ["length"]
+      },
+      "outputs": {
+        "properties": {
+          "base64": {
+            "type": "string",
+            "description": "Base64 encoded random bytes"
+          },
+          "hex": {
+            "type": "string",
+            "description": "Hex encoded random bytes"
+          }
+        },
+        "required": ["base64", "hex"]
+      }
+    }
+  },
+  "types": {
+    "random:index/RandomPetProps:RandomPetProps": {
+      "type": "object",
+      "description": "Properties for RandomPet",
+      "properties": {
+        "length": {
+          "type": "integer",
+          "description": "Number of words in the pet name"
+        },
+        "separator": {
+          "type": "string",
+          "description": "Separator between words"
+        }
+      }
+    }
+  }
+}

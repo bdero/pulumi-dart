@@ -11,6 +11,7 @@ This project is in early development. See [PULUMI_DART_PLAN_V2.md](PULUMI_DART_P
 ```
 pulumi-dart/
 ├── cmd/pulumi-language-dart/ # Go language host plugin
+├── pkg/codegen/dart/         # Dart code generator for SDK generation
 ├── proto/                    # Pulumi proto files
 ├── sdk/dart/                 # Dart SDK package
 │   ├── lib/src/proto/        # Generated gRPC/protobuf code
@@ -90,6 +91,46 @@ For integration tests that run actual Pulumi programs (requires Go):
 cd cmd/pulumi-language-dart
 go test -v -tags=integration -run TestIntegration
 ```
+
+### Codegen Tests
+
+Run the Dart code generator tests:
+
+```bash
+cd pkg/codegen/dart
+go test -v
+```
+
+## Generating Provider SDKs
+
+The Dart language host integrates with `pulumi package gen-sdk` to generate Dart SDKs for Pulumi providers.
+
+### Building the Language Host
+
+```bash
+cd cmd/pulumi-language-dart
+go build -o pulumi-language-dart .
+```
+
+### Generating an SDK
+
+Once the language host is built and installed, you can generate Dart SDKs for any Pulumi provider:
+
+```bash
+# Generate Dart SDK for pulumi-random
+pulumi package gen-sdk --language dart pulumi-random
+
+# Generate Dart SDK for a specific version
+pulumi package gen-sdk --language dart pulumi-aws@6.0.0
+```
+
+The generated SDK will include:
+- `pubspec.yaml` - Package metadata and dependencies
+- `lib/pulumi_<provider>.dart` - Main library export
+- `lib/src/resources/` - Resource classes
+- `lib/src/functions/` - Function wrappers
+- `lib/src/types/` - Type definitions
+- `lib/src/enums/` - Enum types
 
 ## License
 
