@@ -1464,3 +1464,234 @@ func TestGenerateResourceFromDifferentModules(t *testing.T) {
 		}
 	})
 }
+
+func TestGenerateResourceWithDeprecatedOutputProperties(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "test",
+	}
+
+	t.Run("output property with deprecation message", func(t *testing.T) {
+		resource := &schema.Resource{
+			Token:       "test:index:DeprecatedOutputResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "name", Type: schema.StringType},
+			},
+			Properties: []*schema.Property{
+				{
+					Name:               "oldOutput",
+					Type:               schema.StringType,
+					DeprecationMessage: "Use newOutput instead.",
+				},
+				{Name: "newOutput", Type: schema.StringType},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check output property deprecation annotation
+		if !strings.Contains(result, "@Deprecated('Use newOutput instead.')") {
+			t.Error("Expected @Deprecated annotation for output property not found")
+		}
+		// Check the deprecated property declaration
+		if !strings.Contains(result, "late final Output<String> oldOutput;") {
+			t.Error("Expected oldOutput output property not found")
+		}
+	})
+}
+
+func TestGenerateOutputPropertyDeserializationOptionalPrimitives(t *testing.T) {
+	t.Run("optional bool output", func(t *testing.T) {
+		prop := &schema.Property{
+			Name: "optionalEnabled",
+			Type: &schema.OptionalType{ElementType: schema.BoolType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "optionalEnabled")
+
+		if !strings.Contains(result, "optionalEnabled = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		// Optional bool should use nullable accessor
+		if !strings.Contains(result, "?.boolValue") {
+			t.Error("Expected nullable boolValue accessor not found")
+		}
+	})
+
+	t.Run("optional number output", func(t *testing.T) {
+		prop := &schema.Property{
+			Name: "optionalPrice",
+			Type: &schema.OptionalType{ElementType: schema.NumberType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "optionalPrice")
+
+		if !strings.Contains(result, "optionalPrice = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		// Optional number should use nullable accessor
+		if !strings.Contains(result, "?.numberValue") {
+			t.Error("Expected nullable numberValue accessor not found")
+		}
+	})
+
+	t.Run("optional int output", func(t *testing.T) {
+		prop := &schema.Property{
+			Name: "optionalCount",
+			Type: &schema.OptionalType{ElementType: schema.IntType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "optionalCount")
+
+		if !strings.Contains(result, "optionalCount = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		// Optional int should use nullable accessor with toInt
+		if !strings.Contains(result, "?.numberValue?.toInt()") {
+			t.Error("Expected nullable numberValue?.toInt() accessor not found")
+		}
+	})
+}
+
+func TestGenerateListElementExtractionExtended(t *testing.T) {
+	t.Run("number list element", func(t *testing.T) {
+		result := generateListElementExtraction(schema.NumberType)
+
+		if result != "v.numberValue" {
+			t.Errorf("Expected 'v.numberValue', got '%s'", result)
+		}
+	})
+
+	t.Run("unknown type list element defaults to string", func(t *testing.T) {
+		// Use a union type which falls through to default case
+		unionType := &schema.UnionType{
+			ElementTypes: []schema.Type{schema.StringType, schema.IntType},
+		}
+
+		result := generateListElementExtraction(unionType)
+
+		if result != "v.stringValue" {
+			t.Errorf("Expected 'v.stringValue' for unknown type, got '%s'", result)
+		}
+	})
+}
+
+func TestGenerateMapValueExtractionExtended(t *testing.T) {
+	t.Run("number map value", func(t *testing.T) {
+		result := generateMapValueExtraction(schema.NumberType)
+
+		if result != "e.value.numberValue" {
+			t.Errorf("Expected 'e.value.numberValue', got '%s'", result)
+		}
+	})
+
+	t.Run("unknown type map value defaults to string", func(t *testing.T) {
+		// Use a union type which falls through to default case
+		unionType := &schema.UnionType{
+			ElementTypes: []schema.Type{schema.StringType, schema.IntType},
+		}
+
+		result := generateMapValueExtraction(unionType)
+
+		if result != "e.value.stringValue" {
+			t.Errorf("Expected 'e.value.stringValue' for unknown type, got '%s'", result)
+		}
+	})
+}
+
+func TestGeneratePrimitiveExtractionDefaultCase(t *testing.T) {
+	t.Run("unknown type optional defaults to string", func(t *testing.T) {
+		// Use a union type which falls through to default case
+		unionType := &schema.UnionType{
+			ElementTypes: []schema.Type{schema.StringType, schema.IntType},
+		}
+
+		result := generatePrimitiveExtraction(unionType, "properties.fields['test']", true)
+
+		if result != "properties.fields['test']?.stringValue" {
+			t.Errorf("Expected nullable stringValue for unknown optional type, got '%s'", result)
+		}
+	})
+
+	t.Run("unknown type required defaults to string with fallback", func(t *testing.T) {
+		// Use a union type which falls through to default case
+		unionType := &schema.UnionType{
+			ElementTypes: []schema.Type{schema.StringType, schema.IntType},
+		}
+
+		result := generatePrimitiveExtraction(unionType, "properties.fields['test']", false)
+
+		if result != "properties.fields['test']?.stringValue ?? ''" {
+			t.Errorf("Expected stringValue with fallback for unknown required type, got '%s'", result)
+		}
+	})
+}
+
+func TestGenerateResourceWithArrayAndMapOfNumber(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "test",
+	}
+
+	t.Run("resource with array of number outputs", func(t *testing.T) {
+		resource := &schema.Resource{
+			Token:       "test:index:NumberArrayResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "name", Type: schema.StringType},
+			},
+			Properties: []*schema.Property{
+				{Name: "prices", Type: &schema.ArrayType{ElementType: schema.NumberType}},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check Output type for array of doubles
+		if !strings.Contains(result, "late final Output<List<double>> prices;") {
+			t.Error("Expected Output<List<double>> output property not found")
+		}
+		// Check deserialization uses numberValue
+		if !strings.Contains(result, "v.numberValue") {
+			t.Error("Expected v.numberValue in list mapping not found")
+		}
+	})
+
+	t.Run("resource with map of number outputs", func(t *testing.T) {
+		resource := &schema.Resource{
+			Token:       "test:index:NumberMapResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "name", Type: schema.StringType},
+			},
+			Properties: []*schema.Property{
+				{Name: "metrics", Type: &schema.MapType{ElementType: schema.NumberType}},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check Output type for map of doubles
+		if !strings.Contains(result, "late final Output<Map<String, double>> metrics;") {
+			t.Error("Expected Output<Map<String, double>> output property not found")
+		}
+		// Check deserialization uses numberValue
+		if !strings.Contains(result, "e.value.numberValue") {
+			t.Error("Expected e.value.numberValue in map entry not found")
+		}
+	})
+}
