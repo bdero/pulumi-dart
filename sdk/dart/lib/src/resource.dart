@@ -423,6 +423,95 @@ abstract class CustomResource extends Resource {
   }
 }
 
+/// A resource that represents an explicitly configured provider.
+///
+/// Provider resources are used to create explicit provider configurations
+/// that can be passed to other resources via the `provider` option. This allows
+/// you to manage resources with different configurations of the same provider
+/// (e.g., AWS resources in different regions).
+///
+/// ## Provider Reference Format
+///
+/// Providers use the type token format `pulumi:providers:<package>`, where
+/// `<package>` is the provider package name (e.g., 'aws', 'gcp', 'random').
+///
+/// When passed to [ResourceOptions.provider], the provider reference is the
+/// provider's URN.
+///
+/// ## Example
+///
+/// ```dart
+/// class AwsProvider extends ProviderResource {
+///   final AwsProviderArgs _args;
+///
+///   AwsProvider(String name, AwsProviderArgs args, [CustomResourceOptions? opts])
+///       : _args = args,
+///         super('aws', name, opts);
+///
+///   @override
+///   Map<String, Input<Object?>?> get inputs => {
+///     'region': _args.region,
+///     'profile': _args.profile,
+///   };
+/// }
+///
+/// // Usage
+/// final usEastProvider = AwsProvider('us-east', AwsProviderArgs(region: 'us-east-1'));
+/// final usWestProvider = AwsProvider('us-west', AwsProviderArgs(region: 'us-west-2'));
+///
+/// // Create a bucket in us-east-1
+/// final bucket = Bucket('my-bucket', BucketArgs(),
+///   CustomResourceOptions(provider: usEastProvider.providerRef),
+/// );
+/// ```
+abstract class ProviderResource extends CustomResource {
+  /// The provider package name (e.g., 'aws', 'gcp', 'random').
+  final String _package;
+
+  /// Creates a new provider resource.
+  ///
+  /// [package] is the provider package name (e.g., 'aws', 'gcp', 'random').
+  /// The type token is automatically constructed as `pulumi:providers:<package>`.
+  ProviderResource(String package, String name, [CustomResourceOptions? opts])
+      : _package = package,
+        super('pulumi:providers:$package', name, opts);
+
+  /// The provider package name.
+  String get package => _package;
+
+  /// Returns a provider reference string that can be passed to
+  /// [ResourceOptions.provider] or [CustomResourceOptions.provider].
+  ///
+  /// This is an [Output] because the provider's URN is not available until
+  /// registration completes. Use this with [Input.output] when passing to
+  /// resource options.
+  ///
+  /// ```dart
+  /// final provider = MyProvider('my-provider', MyProviderArgs());
+  /// final resource = MyResource('my-resource', MyResourceArgs(),
+  ///   CustomResourceOptions(
+  ///     provider: provider.providerRef,
+  ///   ),
+  /// );
+  /// ```
+  ///
+  /// Note: For simple cases where you need to wait for the reference,
+  /// you can use [providerRefFuture] to get the string directly.
+  Output<String> get providerRef => urn;
+
+  /// Returns a future that resolves to the provider reference string.
+  ///
+  /// This is a convenience method for cases where you need to await the
+  /// provider reference directly rather than passing it as an Output.
+  ///
+  /// ```dart
+  /// final provider = MyProvider('my-provider', MyProviderArgs());
+  /// await provider.registered;
+  /// final ref = await provider.providerRefFuture;
+  /// ```
+  Future<String> get providerRefFuture => urn.future;
+}
+
 /// A logical grouping of resources.
 ///
 /// Component resources are used to create abstractions that group multiple

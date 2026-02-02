@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart';
 
 import 'package:pulumi/src/resource.dart';
+import 'package:pulumi/src/options.dart';
 import 'package:pulumi/src/output.dart';
 import 'package:pulumi/src/input.dart';
 
@@ -380,6 +381,155 @@ void main() {
       expect(childUrn, startsWith(parentUrn));
     });
   });
+
+  group('ProviderResource', () {
+    test('has correct type token format', () {
+      final provider = TestProvider('my-provider');
+      expect(provider.type, equals('pulumi:providers:testprovider'));
+      expect(provider.name, equals('my-provider'));
+      expect(provider.package, equals('testprovider'));
+    });
+
+    test('registered future completes', () async {
+      final provider = TestProvider('my-provider');
+      await provider.registered;
+      // Should complete without error
+    });
+
+    test('urn is available after registration', () async {
+      final provider = TestProvider('my-provider');
+      await provider.registered;
+
+      final urnValue = await provider.urn.future;
+      expect(urnValue, contains('pulumi:providers:testprovider'));
+      expect(urnValue, contains('my-provider'));
+    });
+
+    test('providerRef returns the URN', () async {
+      final provider = TestProvider('my-provider');
+      await provider.registered;
+
+      final providerRefValue = await provider.providerRef.future;
+      final urnValue = await provider.urn.future;
+      expect(providerRefValue, equals(urnValue));
+    });
+
+    test('providerRefFuture returns the URN string', () async {
+      final provider = TestProvider('my-provider');
+      await provider.registered;
+
+      final providerRefValue = await provider.providerRefFuture;
+      final urnValue = await provider.urn.future;
+      expect(providerRefValue, equals(urnValue));
+    });
+
+    test('inputs are passed correctly', () {
+      final provider = TestProvider(
+        'my-provider',
+        inputs: {
+          'region': Input.value('us-east-1'),
+          'profile': Input.value('default'),
+        },
+      );
+
+      expect(provider.inputs, hasLength(2));
+      expect(provider.inputs['region'], isA<InputValue<Object?>>());
+      expect(provider.inputs['profile'], isA<InputValue<Object?>>());
+    });
+
+    test('realistic provider with typed args works', () async {
+      final provider = AwsTestProvider(
+        'us-east',
+        AwsTestProviderArgs(
+          region: Input.value('us-east-1'),
+          profile: Input.value('production'),
+        ),
+      );
+
+      await provider.registered;
+
+      expect(provider.type, equals('pulumi:providers:aws'));
+      expect(provider.package, equals('aws'));
+
+      final urnValue = await provider.urn.future;
+      expect(urnValue, contains('pulumi:providers:aws'));
+    });
+
+    test('provider can be used with custom resource options', () async {
+      final provider = TestProvider('my-provider');
+      await provider.registered;
+
+      // Get the provider reference
+      final providerRef = await provider.providerRefFuture;
+
+      // Create a resource that uses this provider
+      final resource = TestCustomResource(
+        'my-resource',
+        opts: CustomResourceOptions(provider: providerRef),
+      );
+      await resource.registered;
+
+      // Verify the resource was created with the provider option set
+      expect(resource.options?.provider, equals(providerRef));
+    });
+
+    test('multiple providers can coexist', () async {
+      final usEast = AwsTestProvider(
+        'us-east',
+        AwsTestProviderArgs(region: Input.value('us-east-1')),
+      );
+      final usWest = AwsTestProvider(
+        'us-west',
+        AwsTestProviderArgs(region: Input.value('us-west-2')),
+      );
+
+      await Future.wait([usEast.registered, usWest.registered]);
+
+      final usEastUrn = await usEast.urn.future;
+      final usWestUrn = await usWest.urn.future;
+
+      // Each provider should have a unique URN
+      expect(usEastUrn, isNot(equals(usWestUrn)));
+      expect(usEastUrn, contains('us-east'));
+      expect(usWestUrn, contains('us-west'));
+    });
+
+    test('provider inherits CustomResource id behavior', () async {
+      final provider = TestProvider('my-provider');
+      await provider.registered;
+
+      // Providers should have an id like any CustomResource
+      final idValue = await provider.id.future;
+      expect(idValue, isA<String>());
+    });
+
+    test('provider options are preserved', () {
+      final parent = TestComponentResource('parent');
+      final provider = TestProvider(
+        'my-provider',
+        options: CustomResourceOptions(
+          parent: parent,
+          protect: true,
+        ),
+      );
+
+      expect(provider.options?.parent, equals(parent));
+      expect(provider.options?.protect, isTrue);
+    });
+
+    test('different provider packages have different type tokens', () {
+      final awsProvider = AwsTestProvider(
+        'aws-provider',
+        AwsTestProviderArgs(region: Input.value('us-east-1')),
+      );
+      final testProvider = TestProvider('test-provider');
+
+      expect(awsProvider.type, equals('pulumi:providers:aws'));
+      expect(testProvider.type, equals('pulumi:providers:testprovider'));
+      expect(awsProvider.package, equals('aws'));
+      expect(testProvider.package, equals('testprovider'));
+    });
+  });
 }
 
 /// A test resource that has a failing future in inputs (gracefully handled).
@@ -406,4 +556,42 @@ class _FailingDependencyResource extends CustomResource {
           Future.error(StateError('Output data failed')),
         )),
       };
+}
+
+/// A test provider resource implementation.
+class TestProvider extends ProviderResource {
+  final Map<String, Input<Object?>?> _inputs;
+
+  TestProvider(
+    String name, {
+    Map<String, Input<Object?>?>? inputs,
+    CustomResourceOptions? options,
+  })  : _inputs = inputs ?? {},
+        super('testprovider', name, options);
+
+  @override
+  Map<String, Input<Object?>?> get inputs => _inputs;
+}
+
+/// A more realistic provider with typed arguments.
+class AwsTestProvider extends ProviderResource {
+  final AwsTestProviderArgs _args;
+
+  AwsTestProvider(String name, AwsTestProviderArgs args,
+      [CustomResourceOptions? options])
+      : _args = args,
+        super('aws', name, options);
+
+  @override
+  Map<String, Input<Object?>?> get inputs => {
+        'region': _args.region,
+        'profile': _args.profile,
+      };
+}
+
+class AwsTestProviderArgs {
+  final Input<String>? region;
+  final Input<String>? profile;
+
+  AwsTestProviderArgs({this.region, this.profile});
 }
