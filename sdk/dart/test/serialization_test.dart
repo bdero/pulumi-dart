@@ -776,6 +776,390 @@ void main() {
     });
   });
 
+  group('AssetArchive comprehensive tests', () {
+    test('deserializes AssetArchive with all asset types', () {
+      // Build file asset
+      final fileAssetStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.assetSig)
+        ..fields['path'] = (Value()..stringValue = '/path/to/file.txt');
+
+      // Build string asset
+      final stringAssetStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.assetSig)
+        ..fields['text'] = (Value()..stringValue = 'inline content');
+
+      // Build remote asset
+      final remoteAssetStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.assetSig)
+        ..fields['uri'] = (Value()..stringValue = 'https://example.com/file.js');
+
+      // Build assets map struct
+      final assetsStruct = Struct()
+        ..fields['local.txt'] = (Value()..structValue = fileAssetStruct)
+        ..fields['inline.txt'] = (Value()..structValue = stringAssetStruct)
+        ..fields['remote.js'] = (Value()..structValue = remoteAssetStruct);
+
+      // Build archive struct
+      final archiveStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.archiveSig)
+        ..fields['assets'] = (Value()..structValue = assetsStruct);
+
+      final value = Value()..structValue = archiveStruct;
+      final result = PropertyDeserializer.deserializeValue(value);
+
+      expect(result, isA<AssetArchive>());
+      final archive = result as AssetArchive;
+      expect(archive.assets.length, 3);
+
+      expect(archive.assets['local.txt'], isA<FileAsset>());
+      expect((archive.assets['local.txt'] as FileAsset).path, '/path/to/file.txt');
+
+      expect(archive.assets['inline.txt'], isA<StringAsset>());
+      expect((archive.assets['inline.txt'] as StringAsset).text, 'inline content');
+
+      expect(archive.assets['remote.js'], isA<RemoteAsset>());
+      expect((archive.assets['remote.js'] as RemoteAsset).uri, 'https://example.com/file.js');
+    });
+
+    test('deserializes nested AssetArchive (archive containing archive)', () {
+      // Build inner string asset
+      final innerAssetStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.assetSig)
+        ..fields['text'] = (Value()..stringValue = 'nested content');
+
+      // Build inner assets map
+      final innerAssetsStruct = Struct()
+        ..fields['nested.txt'] = (Value()..structValue = innerAssetStruct);
+
+      // Build inner archive
+      final innerArchiveStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.archiveSig)
+        ..fields['assets'] = (Value()..structValue = innerAssetsStruct);
+
+      // Build outer assets map with nested archive
+      final outerAssetsStruct = Struct()
+        ..fields['subdir/'] = (Value()..structValue = innerArchiveStruct);
+
+      // Build outer archive struct
+      final outerArchiveStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.archiveSig)
+        ..fields['assets'] = (Value()..structValue = outerAssetsStruct);
+
+      final value = Value()..structValue = outerArchiveStruct;
+      final result = PropertyDeserializer.deserializeValue(value);
+
+      expect(result, isA<AssetArchive>());
+      final outerArchive = result as AssetArchive;
+      expect(outerArchive.assets.length, 1);
+      expect(outerArchive.assets['subdir/'], isA<AssetArchive>());
+
+      final innerArchive = outerArchive.assets['subdir/'] as AssetArchive;
+      expect(innerArchive.assets.length, 1);
+      expect(innerArchive.assets['nested.txt'], isA<StringAsset>());
+      expect((innerArchive.assets['nested.txt'] as StringAsset).text, 'nested content');
+    });
+
+    test('deserializes AssetArchive containing FileArchive', () {
+      // Build file archive
+      final fileArchiveStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.archiveSig)
+        ..fields['path'] = (Value()..stringValue = '/path/to/archive.zip');
+
+      // Build assets map with file archive
+      final assetsStruct = Struct()
+        ..fields['vendor/'] = (Value()..structValue = fileArchiveStruct);
+
+      // Build outer archive struct
+      final archiveStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.archiveSig)
+        ..fields['assets'] = (Value()..structValue = assetsStruct);
+
+      final value = Value()..structValue = archiveStruct;
+      final result = PropertyDeserializer.deserializeValue(value);
+
+      expect(result, isA<AssetArchive>());
+      final archive = result as AssetArchive;
+      expect(archive.assets.length, 1);
+      expect(archive.assets['vendor/'], isA<FileArchive>());
+      expect((archive.assets['vendor/'] as FileArchive).path, '/path/to/archive.zip');
+    });
+
+    test('deserializes AssetArchive containing RemoteArchive', () {
+      // Build remote archive
+      final remoteArchiveStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.archiveSig)
+        ..fields['uri'] = (Value()..stringValue = 'https://example.com/deps.tar.gz');
+
+      // Build assets map with remote archive
+      final assetsStruct = Struct()
+        ..fields['dependencies/'] = (Value()..structValue = remoteArchiveStruct);
+
+      // Build outer archive struct
+      final archiveStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.archiveSig)
+        ..fields['assets'] = (Value()..structValue = assetsStruct);
+
+      final value = Value()..structValue = archiveStruct;
+      final result = PropertyDeserializer.deserializeValue(value);
+
+      expect(result, isA<AssetArchive>());
+      final archive = result as AssetArchive;
+      expect(archive.assets.length, 1);
+      expect(archive.assets['dependencies/'], isA<RemoteArchive>());
+      expect((archive.assets['dependencies/'] as RemoteArchive).uri, 'https://example.com/deps.tar.gz');
+    });
+
+    test('deserializes empty AssetArchive', () {
+      final assetsStruct = Struct(); // Empty
+
+      final archiveStruct = Struct()
+        ..fields[PropertySignatures.sigKey] =
+            (Value()..stringValue = PropertySignatures.archiveSig)
+        ..fields['assets'] = (Value()..structValue = assetsStruct);
+
+      final value = Value()..structValue = archiveStruct;
+      final result = PropertyDeserializer.deserializeValue(value);
+
+      expect(result, isA<AssetArchive>());
+      final archive = result as AssetArchive;
+      expect(archive.assets, isEmpty);
+    });
+
+    test('serializes AssetArchive with all asset types', () async {
+      final archive = AssetArchive({
+        'local.txt': FileAsset('/path/to/file.txt'),
+        'inline.txt': StringAsset('inline content'),
+        'remote.js': RemoteAsset('https://example.com/file.js'),
+      });
+
+      final result = await PropertySerializer.serializeValue(archive);
+      expect(result.value.hasStructValue(), isTrue);
+
+      final struct = result.value.structValue;
+      expect(struct.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+
+      final assetsStruct = struct.fields['assets']?.structValue;
+      expect(assetsStruct, isNotNull);
+      expect(assetsStruct!.fields.length, 3);
+
+      // Check FileAsset
+      final localAsset = assetsStruct.fields['local.txt']?.structValue;
+      expect(localAsset?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+      expect(localAsset?.fields['path']?.stringValue, '/path/to/file.txt');
+
+      // Check StringAsset
+      final inlineAsset = assetsStruct.fields['inline.txt']?.structValue;
+      expect(inlineAsset?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+      expect(inlineAsset?.fields['text']?.stringValue, 'inline content');
+
+      // Check RemoteAsset
+      final remoteAsset = assetsStruct.fields['remote.js']?.structValue;
+      expect(remoteAsset?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+      expect(remoteAsset?.fields['uri']?.stringValue, 'https://example.com/file.js');
+    });
+
+    test('serializes AssetArchive containing FileArchive', () async {
+      final archive = AssetArchive({
+        'vendor/': FileArchive('/path/to/node_modules'),
+        'main.js': StringAsset('console.log("hello");'),
+      });
+
+      final result = await PropertySerializer.serializeValue(archive);
+      final struct = result.value.structValue;
+      final assetsStruct = struct.fields['assets']?.structValue;
+
+      // Check nested FileArchive
+      final vendorArchive = assetsStruct?.fields['vendor/']?.structValue;
+      expect(vendorArchive?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+      expect(vendorArchive?.fields['path']?.stringValue, '/path/to/node_modules');
+
+      // Check StringAsset is still correct
+      final mainJs = assetsStruct?.fields['main.js']?.structValue;
+      expect(mainJs?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+    });
+
+    test('serializes AssetArchive containing RemoteArchive', () async {
+      final archive = AssetArchive({
+        'libs/': RemoteArchive('https://example.com/libs.tar.gz'),
+      });
+
+      final result = await PropertySerializer.serializeValue(archive);
+      final struct = result.value.structValue;
+      final assetsStruct = struct.fields['assets']?.structValue;
+
+      final libsArchive = assetsStruct?.fields['libs/']?.structValue;
+      expect(libsArchive?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+      expect(libsArchive?.fields['uri']?.stringValue, 'https://example.com/libs.tar.gz');
+    });
+
+    test('serializes deeply nested AssetArchive', () async {
+      final archive = AssetArchive({
+        'level1/': AssetArchive({
+          'level2/': AssetArchive({
+            'deep.txt': StringAsset('deeply nested'),
+          }),
+        }),
+      });
+
+      final result = await PropertySerializer.serializeValue(archive);
+      final struct = result.value.structValue;
+
+      // Navigate to deeply nested content
+      final level1 = struct.fields['assets']?.structValue
+          .fields['level1/']?.structValue;
+      expect(level1?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+
+      final level2 = level1?.fields['assets']?.structValue
+          .fields['level2/']?.structValue;
+      expect(level2?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+
+      final deepTxt = level2?.fields['assets']?.structValue
+          .fields['deep.txt']?.structValue;
+      expect(deepTxt?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+      expect(deepTxt?.fields['text']?.stringValue, 'deeply nested');
+    });
+
+    test('serializes empty AssetArchive', () async {
+      final archive = AssetArchive({});
+      final result = await PropertySerializer.serializeValue(archive);
+
+      final struct = result.value.structValue;
+      expect(struct.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+      final assetsStruct = struct.fields['assets']?.structValue;
+      expect(assetsStruct?.fields, isEmpty);
+    });
+
+    test('roundtrips AssetArchive with all asset types', () async {
+      final original = AssetArchive({
+        'file.txt': FileAsset('/path/to/file'),
+        'string.txt': StringAsset('content'),
+        'remote.js': RemoteAsset('https://example.com/file.js'),
+      });
+
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+
+      expect(deserialized, isA<AssetArchive>());
+      final archive = deserialized as AssetArchive;
+      expect(archive.assets.length, 3);
+      expect(archive.assets['file.txt'], equals(FileAsset('/path/to/file')));
+      expect(archive.assets['string.txt'], equals(StringAsset('content')));
+      expect(archive.assets['remote.js'], equals(RemoteAsset('https://example.com/file.js')));
+    });
+
+    test('roundtrips AssetArchive containing FileArchive', () async {
+      final original = AssetArchive({
+        'vendor/': FileArchive('/path/to/vendor'),
+        'main.js': StringAsset('code'),
+      });
+
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+
+      expect(deserialized, isA<AssetArchive>());
+      final archive = deserialized as AssetArchive;
+      expect(archive.assets['vendor/'], equals(FileArchive('/path/to/vendor')));
+      expect(archive.assets['main.js'], equals(StringAsset('code')));
+    });
+
+    test('roundtrips AssetArchive containing RemoteArchive', () async {
+      final original = AssetArchive({
+        'deps/': RemoteArchive('https://example.com/deps.zip'),
+      });
+
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+
+      expect(deserialized, isA<AssetArchive>());
+      final archive = deserialized as AssetArchive;
+      expect(archive.assets['deps/'], equals(RemoteArchive('https://example.com/deps.zip')));
+    });
+
+    test('roundtrips nested AssetArchive', () async {
+      final original = AssetArchive({
+        'src/': AssetArchive({
+          'main.dart': StringAsset('void main() {}'),
+          'lib/': AssetArchive({
+            'utils.dart': StringAsset('// utils'),
+          }),
+        }),
+        'README.md': StringAsset('# My Project'),
+      });
+
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+
+      expect(deserialized, isA<AssetArchive>());
+      final archive = deserialized as AssetArchive;
+      expect(archive.assets.length, 2);
+
+      final src = archive.assets['src/'] as AssetArchive;
+      expect(src.assets['main.dart'], equals(StringAsset('void main() {}')));
+
+      final lib = src.assets['lib/'] as AssetArchive;
+      expect(lib.assets['utils.dart'], equals(StringAsset('// utils')));
+
+      expect(archive.assets['README.md'], equals(StringAsset('# My Project')));
+    });
+
+    test('roundtrips mixed nested archives', () async {
+      final original = AssetArchive({
+        'code/': AssetArchive({
+          'index.js': StringAsset('exports.handler = () => {};'),
+        }),
+        'vendor/': FileArchive('./node_modules'),
+        'deps/': RemoteArchive('https://example.com/deps.tar.gz'),
+        'config.json': FileAsset('./config.json'),
+      });
+
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+
+      expect(deserialized, isA<AssetArchive>());
+      final archive = deserialized as AssetArchive;
+      expect(archive.assets.length, 4);
+
+      expect(archive.assets['code/'], isA<AssetArchive>());
+      final code = archive.assets['code/'] as AssetArchive;
+      expect(code.assets['index.js'], equals(StringAsset('exports.handler = () => {};')));
+
+      expect(archive.assets['vendor/'], equals(FileArchive('./node_modules')));
+      expect(archive.assets['deps/'], equals(RemoteArchive('https://example.com/deps.tar.gz')));
+      expect(archive.assets['config.json'], equals(FileAsset('./config.json')));
+    });
+
+    test('roundtrips empty AssetArchive', () async {
+      final original = AssetArchive({});
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+
+      expect(deserialized, isA<AssetArchive>());
+      expect((deserialized as AssetArchive).assets, isEmpty);
+    });
+  });
+
   group('Roundtrip serialization', () {
     test('primitives roundtrip correctly', () async {
       final values = [null, true, false, 42, 3.14, 'hello'];
