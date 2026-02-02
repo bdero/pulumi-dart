@@ -38,6 +38,7 @@ vendor/
 # OS
 .DS_Store
 Thumbs.db
+nul
 
 # Build artifacts
 dist/
