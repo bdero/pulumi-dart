@@ -332,6 +332,9 @@ func generateListElementExtraction(elemType schema.Type) string {
 		case *schema.ObjectType:
 			className := tokenToQualifiedTypeClassName(tt.Token)
 			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(v.structValue) as Map<String, dynamic>)", className)
+		case *schema.EnumType:
+			className := tokenToQualifiedTypeClassName(tt.Token)
+			return fmt.Sprintf("%s.fromValue(v.stringValue)", className)
 		default:
 			return "v.stringValue"
 		}
@@ -354,6 +357,9 @@ func generateMapValueExtraction(elemType schema.Type) string {
 		case *schema.ObjectType:
 			className := tokenToQualifiedTypeClassName(tt.Token)
 			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(e.value.structValue) as Map<String, dynamic>)", className)
+		case *schema.EnumType:
+			className := tokenToQualifiedTypeClassName(tt.Token)
+			return fmt.Sprintf("%s.fromValue(e.value.stringValue)", className)
 		default:
 			return "e.value.stringValue"
 		}

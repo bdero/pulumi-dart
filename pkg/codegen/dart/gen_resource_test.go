@@ -1567,6 +1567,20 @@ func TestGenerateListElementExtractionExtended(t *testing.T) {
 		}
 	})
 
+	t.Run("enum list element", func(t *testing.T) {
+		enumType := &schema.EnumType{
+			Token:       "test:index:StatusEnum",
+			ElementType: schema.StringType,
+		}
+
+		result := generateListElementExtraction(enumType)
+
+		expected := "IndexStatusEnum.fromValue(v.stringValue)"
+		if result != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, result)
+		}
+	})
+
 	t.Run("unknown type list element defaults to string", func(t *testing.T) {
 		// Use a union type which falls through to default case
 		unionType := &schema.UnionType{
@@ -1587,6 +1601,20 @@ func TestGenerateMapValueExtractionExtended(t *testing.T) {
 
 		if result != "e.value.numberValue" {
 			t.Errorf("Expected 'e.value.numberValue', got '%s'", result)
+		}
+	})
+
+	t.Run("enum map value", func(t *testing.T) {
+		enumType := &schema.EnumType{
+			Token:       "test:index:PriorityEnum",
+			ElementType: schema.StringType,
+		}
+
+		result := generateMapValueExtraction(enumType)
+
+		expected := "IndexPriorityEnum.fromValue(e.value.stringValue)"
+		if result != expected {
+			t.Errorf("Expected '%s', got '%s'", expected, result)
 		}
 	})
 
@@ -1628,6 +1656,80 @@ func TestGeneratePrimitiveExtractionDefaultCase(t *testing.T) {
 
 		if result != "properties.fields['test']?.stringValue ?? ''" {
 			t.Errorf("Expected stringValue with fallback for unknown required type, got '%s'", result)
+		}
+	})
+}
+
+func TestGenerateResourceWithArrayAndMapOfEnums(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "test",
+	}
+
+	t.Run("resource with array of enum outputs", func(t *testing.T) {
+		statusEnum := &schema.EnumType{
+			Token:       "test:index:Status",
+			ElementType: schema.StringType,
+		}
+
+		resource := &schema.Resource{
+			Token:       "test:index:EnumArrayResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "name", Type: schema.StringType},
+			},
+			Properties: []*schema.Property{
+				{Name: "enabledMetrics", Type: &schema.ArrayType{ElementType: statusEnum}},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check Output type for array of enums
+		if !strings.Contains(result, "late final Output<List<IndexStatus>> enabledMetrics;") {
+			t.Error("Expected Output<List<IndexStatus>> output property not found")
+		}
+		// Check deserialization uses fromValue with stringValue
+		if !strings.Contains(result, "IndexStatus.fromValue(v.stringValue)") {
+			t.Error("Expected IndexStatus.fromValue(v.stringValue) in list mapping not found")
+		}
+	})
+
+	t.Run("resource with map of enum outputs", func(t *testing.T) {
+		priorityEnum := &schema.EnumType{
+			Token:       "test:index:Priority",
+			ElementType: schema.StringType,
+		}
+
+		resource := &schema.Resource{
+			Token:       "test:index:EnumMapResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "name", Type: schema.StringType},
+			},
+			Properties: []*schema.Property{
+				{Name: "priorities", Type: &schema.MapType{ElementType: priorityEnum}},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check Output type for map of enums
+		if !strings.Contains(result, "late final Output<Map<String, IndexPriority>> priorities;") {
+			t.Error("Expected Output<Map<String, IndexPriority>> output property not found")
+		}
+		// Check deserialization uses fromValue with e.value.stringValue
+		if !strings.Contains(result, "IndexPriority.fromValue(e.value.stringValue)") {
+			t.Error("Expected IndexPriority.fromValue(e.value.stringValue) in map entry not found")
 		}
 	})
 }
