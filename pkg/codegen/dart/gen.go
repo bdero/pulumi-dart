@@ -158,7 +158,7 @@ func (g *Generator) generatePubspec() ([]byte, error) {
 	buf.WriteString("\ndependencies:\n")
 	buf.WriteString("  pulumi: ^0.1.0\n")
 	buf.WriteString("  meta: ^1.11.0\n")
-	buf.WriteString("  protobuf: ^3.1.0\n")
+	buf.WriteString("  protobuf: ^6.0.0\n")
 
 	buf.WriteString("\ndev_dependencies:\n")
 	buf.WriteString("  test: ^1.25.0\n")
