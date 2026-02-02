@@ -80,15 +80,17 @@ func generateFunction(pkg *schema.Package, function *schema.Function) ([]byte, e
 
 	// Build args map
 	// Note: invokeAsync accepts Map<String, Input<Object?>?> but the values here
-	// are plain Dart types wrapped with Input.value()
+	// are plain Dart types that need to be serialized (for complex types) and wrapped with Input.value()
 	buf.WriteString("  final args = <String, Input<Object?>?>{\n")
 	if function.Inputs != nil {
 		for _, prop := range function.Inputs.Properties {
 			propName := toCamelCase(prop.Name)
+			// Use generateToPropertyMapValue to handle complex types (objects, arrays, maps, enums)
+			valueExpr := generateToPropertyMapValue(prop.Type, propName)
 			if prop.IsRequired() {
-				buf.WriteString(fmt.Sprintf("    '%s': Input.value(%s),\n", prop.Name, propName))
+				buf.WriteString(fmt.Sprintf("    '%s': Input.value(%s),\n", prop.Name, valueExpr))
 			} else {
-				buf.WriteString(fmt.Sprintf("    if (%s != null) '%s': Input.value(%s),\n", propName, prop.Name, propName))
+				buf.WriteString(fmt.Sprintf("    if (%s != null) '%s': Input.value(%s),\n", propName, prop.Name, valueExpr))
 			}
 		}
 	}

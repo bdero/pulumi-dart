@@ -240,6 +240,90 @@ func TestGenerateFunction(t *testing.T) {
 		if !strings.Contains(result, "required List<int> ids,") {
 			t.Error("Expected List parameter not found")
 		}
+
+		// Check that object types are properly serialized in args map
+		if !strings.Contains(result, "'config': Input.value(config.toPropertyMap()),") {
+			t.Error("Expected config serialization with toPropertyMap() not found")
+		}
+	})
+
+	t.Run("function args serialization for complex types", func(t *testing.T) {
+		objectType := &schema.ObjectType{
+			Token: "test:index:Item",
+		}
+		enumType := &schema.EnumType{
+			Token:       "test:index:Priority",
+			ElementType: schema.StringType,
+		}
+
+		function := &schema.Function{
+			Token:   "test:index:processItems",
+			Comment: "Process items with various complex types.",
+			Inputs: &schema.ObjectType{
+				Properties: []*schema.Property{
+					// Object type - should call toPropertyMap()
+					{Name: "item", Type: objectType},
+					// Array of objects - should map with toPropertyMap()
+					{Name: "items", Type: &schema.ArrayType{ElementType: objectType}},
+					// Map with object values - should map values with toPropertyMap()
+					{Name: "item_map", Type: &schema.MapType{ElementType: objectType}},
+					// Enum type - should call .value
+					{Name: "priority", Type: enumType},
+					// Optional object - should handle null check
+					{Name: "optional_item", Type: &schema.OptionalType{ElementType: objectType}},
+					// Array of primitives - should pass through unchanged
+					{Name: "ids", Type: &schema.ArrayType{ElementType: schema.IntType}},
+					// Map of primitives - should pass through unchanged
+					{Name: "tags", Type: &schema.MapType{ElementType: schema.StringType}},
+				},
+			},
+			ReturnType: &schema.ObjectType{
+				Token:      "test:index:processItemsResult",
+				Properties: []*schema.Property{},
+			},
+		}
+
+		content, err := generateFunction(pkg, function)
+		if err != nil {
+			t.Fatalf("generateFunction failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Object type: should call toPropertyMap()
+		if !strings.Contains(result, "'item': Input.value(item.toPropertyMap()),") {
+			t.Error("Expected object serialization with toPropertyMap() not found")
+		}
+
+		// Array of objects: should map with toPropertyMap()
+		if !strings.Contains(result, "'items': Input.value(items.map((e) => e.toPropertyMap()).toList()),") {
+			t.Error("Expected array of objects serialization not found")
+		}
+
+		// Map with object values: should map values with toPropertyMap()
+		if !strings.Contains(result, "'item_map': Input.value(itemMap.map((k, v) => MapEntry(k, v.toPropertyMap()))),") {
+			t.Error("Expected map with object values serialization not found")
+		}
+
+		// Enum type: should call .value
+		if !strings.Contains(result, "'priority': Input.value(priority.value),") {
+			t.Error("Expected enum serialization with .value not found")
+		}
+
+		// Optional object: should handle null check
+		if !strings.Contains(result, "if (optionalItem != null) 'optional_item': Input.value(optionalItem != null ? optionalItem!.toPropertyMap() : null),") {
+			t.Error("Expected optional object serialization with null check not found")
+		}
+
+		// Array of primitives: should pass through unchanged
+		if !strings.Contains(result, "'ids': Input.value(ids),") {
+			t.Error("Expected array of primitives to pass through unchanged")
+		}
+
+		// Map of primitives: should pass through unchanged
+		if !strings.Contains(result, "'tags': Input.value(tags),") {
+			t.Error("Expected map of primitives to pass through unchanged")
+		}
 	})
 
 	t.Run("function with enum types", func(t *testing.T) {
