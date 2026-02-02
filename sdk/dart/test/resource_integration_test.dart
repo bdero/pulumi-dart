@@ -604,6 +604,314 @@ void main() {
     });
   });
 
+  group('ComponentResource integration', () {
+    test('ComponentResource with child CustomResources receives proper parent relationship', () async {
+      final parentUrn =
+          'urn:pulumi:stack::project::myapp:components:MyWebApp::my-web-app';
+      mockService.nextUrn = parentUrn;
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      // Create the parent component
+      final webApp = TestWebAppComponent('my-web-app');
+      await webApp.registered;
+
+      // Create child resources with parent set to the component
+      mockService.nextUrn =
+          'urn:pulumi:stack::project::myapp:components:MyWebApp::my-web-app::aws:s3/bucket:Bucket::app-bucket';
+      mockService.nextId = 'app-bucket-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'my-app-bucket')
+        ..fields['arn'] = (Value()..stringValue = 'arn:aws:s3:::my-app-bucket');
+
+      final bucket = TestBucket(
+        'app-bucket',
+        bucketName: 'my-app-bucket',
+        options: ResourceOptions(parent: webApp),
+      );
+      await bucket.registered;
+
+      mockService.nextUrn =
+          'urn:pulumi:stack::project::myapp:components:MyWebApp::my-web-app::aws:s3/bucket:Bucket::log-bucket';
+      mockService.nextId = 'log-bucket-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'my-log-bucket')
+        ..fields['arn'] = (Value()..stringValue = 'arn:aws:s3:::my-log-bucket');
+
+      final logBucket = TestBucket(
+        'log-bucket',
+        bucketName: 'my-log-bucket',
+        options: ResourceOptions(parent: webApp),
+      );
+      await logBucket.registered;
+
+      // Verify all resources were registered
+      expect(mockService.registeredResources, hasLength(3));
+
+      // Verify parent component
+      final componentRequest = mockService.registeredResources[0];
+      expect(componentRequest.type, equals('myapp:components:MyWebApp'));
+      expect(componentRequest.custom, isFalse);
+
+      // Verify first child bucket has parent set
+      final bucketRequest = mockService.registeredResources[1];
+      expect(bucketRequest.type, equals('aws:s3/bucket:Bucket'));
+      expect(bucketRequest.parent, equals(parentUrn));
+
+      // Verify second child bucket has parent set
+      final logBucketRequest = mockService.registeredResources[2];
+      expect(logBucketRequest.type, equals('aws:s3/bucket:Bucket'));
+      expect(logBucketRequest.parent, equals(parentUrn));
+    });
+
+    test('ComponentResource aggregates outputs from child resources', () async {
+      final componentUrn =
+          'urn:pulumi:stack::project::myapp:components:MyWebApp::my-web-app';
+      mockService.nextUrn = componentUrn;
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      // Create component
+      final webApp = TestWebAppComponent('my-web-app');
+      await webApp.registered;
+
+      // Create child bucket
+      mockService.nextUrn =
+          'urn:pulumi:stack::project::myapp:components:MyWebApp::my-web-app::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'app-bucket')
+        ..fields['arn'] = (Value()..stringValue = 'arn:aws:s3:::app-bucket');
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'app-bucket',
+        options: ResourceOptions(parent: webApp),
+      );
+      await bucket.registered;
+
+      // Set component outputs from child resources
+      webApp.setBucketOutputs(bucket);
+
+      // Register outputs to aggregate child outputs
+      await webApp.registerAllOutputs();
+      await Future.delayed(Duration(milliseconds: 50));
+
+      // Verify registerOutputs was called
+      expect(mockService.registeredOutputs, hasLength(1));
+
+      final outputRequest = mockService.registeredOutputs.first;
+      expect(outputRequest.urn, equals(componentUrn));
+
+      // Verify aggregated outputs
+      final outputs = outputRequest.outputs.fields;
+      expect(outputs['bucketName']?.stringValue, equals('app-bucket'));
+      expect(outputs['bucketArn']?.stringValue, equals('arn:aws:s3:::app-bucket'));
+    });
+
+    test('ComponentResource with multiple child resources aggregates all outputs', () async {
+      final componentUrn =
+          'urn:pulumi:stack::project::myapp:components:StaticWebsite::my-site';
+      mockService.nextUrn = componentUrn;
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      // Create component
+      final site = TestStaticWebsiteComponent('my-site');
+      await site.registered;
+
+      // Create content bucket
+      mockService.nextUrn =
+          'urn:pulumi:stack::project::myapp:components:StaticWebsite::my-site::aws:s3/bucket:Bucket::content';
+      mockService.nextId = 'content-bucket-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'content-bucket')
+        ..fields['arn'] = (Value()..stringValue = 'arn:aws:s3:::content-bucket');
+
+      final contentBucket = TestBucket(
+        'content',
+        bucketName: 'content-bucket',
+        options: ResourceOptions(parent: site),
+      );
+      await contentBucket.registered;
+
+      // Create logs bucket
+      mockService.nextUrn =
+          'urn:pulumi:stack::project::myapp:components:StaticWebsite::my-site::aws:s3/bucket:Bucket::logs';
+      mockService.nextId = 'logs-bucket-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'logs-bucket')
+        ..fields['arn'] = (Value()..stringValue = 'arn:aws:s3:::logs-bucket');
+
+      final logsBucket = TestBucket(
+        'logs',
+        bucketName: 'logs-bucket',
+        options: ResourceOptions(parent: site),
+      );
+      await logsBucket.registered;
+
+      // Set component outputs from multiple children
+      site.setOutputs(
+        contentBucket: contentBucket,
+        logsBucket: logsBucket,
+        websiteUrl: 'https://my-site.example.com',
+      );
+
+      // Register aggregated outputs
+      await site.registerAllOutputs();
+      await Future.delayed(Duration(milliseconds: 50));
+
+      // Verify registerOutputs was called
+      expect(mockService.registeredOutputs, hasLength(1));
+
+      final outputRequest = mockService.registeredOutputs.first;
+      expect(outputRequest.urn, equals(componentUrn));
+
+      // Verify all aggregated outputs
+      final outputs = outputRequest.outputs.fields;
+      expect(outputs['contentBucketName']?.stringValue, equals('content-bucket'));
+      expect(outputs['logsBucketName']?.stringValue, equals('logs-bucket'));
+      expect(outputs['websiteUrl']?.stringValue, equals('https://my-site.example.com'));
+    });
+
+    test('Nested ComponentResources maintain proper hierarchy', () async {
+      final outerUrn =
+          'urn:pulumi:stack::project::myapp:components:Outer::outer';
+      mockService.nextUrn = outerUrn;
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      // Create outer component
+      final outer = TestComponent('outer');
+      await outer.registered;
+
+      // Create inner component as child of outer
+      final innerUrn =
+          'urn:pulumi:stack::project::myapp:components:Outer::outer::myapp:components:Inner::inner';
+      mockService.nextUrn = innerUrn;
+
+      final inner = TestInnerComponent(
+        'inner',
+        options: ResourceOptions(parent: outer),
+      );
+      await inner.registered;
+
+      // Create custom resource as child of inner
+      mockService.nextUrn =
+          'urn:pulumi:stack::project::myapp:components:Outer::outer::myapp:components:Inner::inner::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'nested-bucket');
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'nested-bucket',
+        options: ResourceOptions(parent: inner),
+      );
+      await bucket.registered;
+
+      // Verify hierarchy
+      expect(mockService.registeredResources, hasLength(3));
+
+      // Outer has no parent
+      expect(mockService.registeredResources[0].parent, isEmpty);
+
+      // Inner has outer as parent
+      expect(mockService.registeredResources[1].parent, equals(outerUrn));
+
+      // Bucket has inner as parent
+      expect(mockService.registeredResources[2].parent, equals(innerUrn));
+    });
+
+    test('ComponentResource registerOutputs waits for registration before sending', () async {
+      final componentUrn =
+          'urn:pulumi:stack::project::mycompany:components:TestComponent::delayed';
+      mockService.nextUrn = componentUrn;
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final component = TestComponent('delayed');
+      component.setEndpoint('https://delayed.example.com');
+
+      // Call registerOutputs immediately (before awaiting registered)
+      // It should internally wait for registration
+      final registerFuture = component.registerAllOutputs();
+
+      // At this point, registration might not be complete
+      // Wait for both registration and registerOutputs to complete
+      await component.registered;
+      await registerFuture;
+      await Future.delayed(Duration(milliseconds: 50));
+
+      // Verify both registration and outputs were sent
+      expect(mockService.registeredResources, hasLength(1));
+      expect(mockService.registeredOutputs, hasLength(1));
+      expect(mockService.registeredOutputs.first.urn, equals(componentUrn));
+    });
+
+    test('ComponentResource with no outputs can skip registerOutputs', () async {
+      final componentUrn =
+          'urn:pulumi:stack::project::mycompany:components:TestComponent::no-outputs';
+      mockService.nextUrn = componentUrn;
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final component = TestComponent('no-outputs');
+      await component.registered;
+
+      // Component can exist without calling registerOutputs
+      expect(mockService.registeredResources, hasLength(1));
+      expect(mockService.registeredResources.first.custom, isFalse);
+
+      // No outputs registered
+      expect(mockService.registeredOutputs, isEmpty);
+    });
+
+    test('ComponentResource registerOutputs with empty map sends empty outputs', () async {
+      final componentUrn =
+          'urn:pulumi:stack::project::mycompany:components:EmptyOutputs::empty';
+      mockService.nextUrn = componentUrn;
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final component = TestEmptyOutputsComponent('empty');
+      await component.registered;
+      await component.registerOutputs({});
+      await Future.delayed(Duration(milliseconds: 50));
+
+      expect(mockService.registeredOutputs, hasLength(1));
+      expect(mockService.registeredOutputs.first.outputs.fields, isEmpty);
+    });
+  });
+
   group('Resource fallback without Runtime', () {
     test('CustomResource uses mock URN when Runtime not initialized', () async {
       // Don't initialize Runtime
@@ -646,4 +954,65 @@ class TestBucketWithOutputInput extends CustomResource {
   void processOutputs(Struct properties) {
     super.processOutputs(properties);
   }
+}
+
+/// A test web application component that aggregates child resource outputs.
+class TestWebAppComponent extends ComponentResource {
+  late final Output<String> bucketName;
+  late final Output<String> bucketArn;
+
+  TestWebAppComponent(String name, {ResourceOptions? options})
+      : super('myapp:components:MyWebApp', name, options);
+
+  void setBucketOutputs(TestBucket bucket) {
+    bucketName = bucket.bucketName;
+    bucketArn = bucket.arn;
+  }
+
+  Future<void> registerAllOutputs() async {
+    await registerOutputs({
+      'bucketName': bucketName,
+      'bucketArn': bucketArn,
+    });
+  }
+}
+
+/// A test static website component that aggregates multiple child outputs.
+class TestStaticWebsiteComponent extends ComponentResource {
+  late final Output<String> contentBucketName;
+  late final Output<String> logsBucketName;
+  late final Output<String> websiteUrl;
+
+  TestStaticWebsiteComponent(String name, {ResourceOptions? options})
+      : super('myapp:components:StaticWebsite', name, options);
+
+  void setOutputs({
+    required TestBucket contentBucket,
+    required TestBucket logsBucket,
+    required String websiteUrl,
+  }) {
+    contentBucketName = contentBucket.bucketName;
+    logsBucketName = logsBucket.bucketName;
+    this.websiteUrl = Output.of(websiteUrl);
+  }
+
+  Future<void> registerAllOutputs() async {
+    await registerOutputs({
+      'contentBucketName': contentBucketName,
+      'logsBucketName': logsBucketName,
+      'websiteUrl': websiteUrl,
+    });
+  }
+}
+
+/// A test inner component for testing nested component hierarchies.
+class TestInnerComponent extends ComponentResource {
+  TestInnerComponent(String name, {ResourceOptions? options})
+      : super('myapp:components:Inner', name, options);
+}
+
+/// A test component that can register empty outputs.
+class TestEmptyOutputsComponent extends ComponentResource {
+  TestEmptyOutputsComponent(String name, {ResourceOptions? options})
+      : super('mycompany:components:EmptyOutputs', name, options);
 }
