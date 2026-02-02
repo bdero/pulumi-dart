@@ -150,6 +150,7 @@ class ResourceMonitor {
     String? deletedWith,
     source.SourcePosition? sourcePosition,
     String? packageRef,
+    List<String> additionalSecretOutputs = const [],
     CallOptions? options,
   }) async {
     final request = resource.RegisterResourceRequest()
@@ -206,6 +207,9 @@ class ResourceMonitor {
     }
     if (packageRef != null && packageRef.isNotEmpty) {
       request.packageRef = packageRef;
+    }
+    if (additionalSecretOutputs.isNotEmpty) {
+      request.additionalSecretOutputs.addAll(additionalSecretOutputs);
     }
 
     return await _client.registerResource(request, options: options);

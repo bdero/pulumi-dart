@@ -307,6 +307,301 @@ void main() {
       expect(request.aliases[3].hasSpec(), isTrue);
       expect(request.aliases[3].spec.noParent, isTrue);
     });
+
+    test('Resource sends ignoreChanges when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'my-bucket',
+        options: ResourceOptions(
+          ignoreChanges: ['tags', 'acl'],
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.ignoreChanges, containsAll(['tags', 'acl']));
+    });
+
+    test('Resource sends replaceOnChanges when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'my-bucket',
+        options: ResourceOptions(
+          replaceOnChanges: ['bucketName', 'region'],
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.replaceOnChanges, containsAll(['bucketName', 'region']));
+    });
+
+    test('Resource sends customTimeouts when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'my-bucket',
+        options: ResourceOptions(
+          customTimeouts: CustomTimeouts(
+            create: '30m',
+            update: '15m',
+            delete: '1h',
+          ),
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.hasCustomTimeouts(), isTrue);
+      expect(request.customTimeouts.create_1, equals('30m'));
+      expect(request.customTimeouts.update, equals('15m'));
+      expect(request.customTimeouts.delete, equals('1h'));
+    });
+
+    test('Resource sends version when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'my-bucket',
+        options: ResourceOptions(
+          version: '5.0.0',
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.version, equals('5.0.0'));
+    });
+
+    test('Resource sends pluginDownloadUrl when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'my-bucket',
+        options: ResourceOptions(
+          pluginDownloadUrl: 'https://example.com/plugins',
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.pluginDownloadURL, equals('https://example.com/plugins'));
+    });
+
+    test('Resource sends retainOnDelete when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'my-bucket',
+        options: ResourceOptions(
+          retainOnDelete: true,
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.retainOnDelete, isTrue);
+    });
+
+    test('Resource sends deletedWith when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::mycompany:components:Parent::parent';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final parent = TestComponent('parent');
+      await parent.registered;
+      final parentUrn = await parent.urn.future;
+
+      // Reset for child
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::child';
+      mockService.nextId = 'child-id';
+
+      final child = TestBucket(
+        'child',
+        bucketName: 'child-bucket',
+        options: ResourceOptions(
+          deletedWith: parentUrn,
+        ),
+      );
+      await child.registered;
+
+      expect(mockService.registeredResources, hasLength(2));
+      final request = mockService.registeredResources.last;
+      expect(request.deletedWith, equals(parentUrn));
+    });
+  });
+
+  group('CustomResourceOptions integration', () {
+    test('CustomResource sends importId when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::imported';
+      mockService.nextId = 'existing-bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'imported',
+        bucketName: 'imported-bucket',
+        options: CustomResourceOptions(
+          importId: 'existing-bucket-id',
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.importId, equals('existing-bucket-id'));
+    });
+
+    test('CustomResource sends deleteBeforeReplace when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'my-bucket',
+        options: CustomResourceOptions(
+          deleteBeforeReplace: true,
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.deleteBeforeReplace, isTrue);
+    });
+
+    test('CustomResource sends additionalSecretOutputs when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'my-bucket',
+        options: CustomResourceOptions(
+          additionalSecretOutputs: ['connectionString', 'password'],
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.additionalSecretOutputs,
+          containsAll(['connectionString', 'password']));
+    });
+
+    test('CustomResource sends multiple CustomResourceOptions fields together', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'bucket',
+        bucketName: 'my-bucket',
+        options: CustomResourceOptions(
+          protect: true,
+          ignoreChanges: ['tags'],
+          replaceOnChanges: ['bucketName'],
+          customTimeouts: CustomTimeouts(create: '10m'),
+          version: '4.0.0',
+          deleteBeforeReplace: true,
+          additionalSecretOutputs: ['secretValue'],
+          retainOnDelete: true,
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.protect, isTrue);
+      expect(request.ignoreChanges, contains('tags'));
+      expect(request.replaceOnChanges, contains('bucketName'));
+      expect(request.customTimeouts.create_1, equals('10m'));
+      expect(request.version, equals('4.0.0'));
+      expect(request.deleteBeforeReplace, isTrue);
+      expect(request.additionalSecretOutputs, contains('secretValue'));
+      expect(request.retainOnDelete, isTrue);
+    });
   });
 
   group('Resource fallback without Runtime', () {

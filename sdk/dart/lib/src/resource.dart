@@ -181,10 +181,12 @@ abstract class Resource {
       // Get CustomResourceOptions-specific fields if applicable
       String? importId;
       bool deleteBeforeReplace = false;
+      List<String> additionalSecretOutputs = [];
       if (_opts is CustomResourceOptions) {
         final customOpts = _opts as CustomResourceOptions;
         importId = customOpts.importId;
         deleteBeforeReplace = customOpts.deleteBeforeReplace;
+        additionalSecretOutputs = customOpts.additionalSecretOutputs;
       }
 
       // Register the resource with the Pulumi engine
@@ -207,6 +209,7 @@ abstract class Resource {
         pluginDownloadUrl: _opts?.pluginDownloadUrl,
         importId: importId,
         deleteBeforeReplace: deleteBeforeReplace,
+        additionalSecretOutputs: additionalSecretOutputs,
       );
 
       // Set the URN from the response
