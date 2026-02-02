@@ -401,6 +401,32 @@ void main() {
         expect(result, isA<RemoteArchive>());
         expect((result as RemoteArchive).uri, 'https://example.com/archive.tar.gz');
       });
+
+      test('deserializes asset archive', () {
+        // Build inner asset struct
+        final assetStruct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.assetSig)
+          ..fields['text'] = (Value()..stringValue = 'content');
+
+        // Build assets map struct
+        final assetsStruct = Struct()
+          ..fields['file.txt'] = (Value()..structValue = assetStruct);
+
+        // Build archive struct
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.archiveSig)
+          ..fields['assets'] = (Value()..structValue = assetsStruct);
+
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<AssetArchive>());
+        final archive = result as AssetArchive;
+        expect(archive.assets.length, 1);
+        expect(archive.assets['file.txt'], isA<StringAsset>());
+        expect((archive.assets['file.txt'] as StringAsset).text, 'content');
+      });
     });
 
     group('toOutputData', () {
@@ -431,6 +457,164 @@ void main() {
         final data = PropertyDeserializer.toOutputData<Map<String, dynamic>>(value);
         expect(data.isSecret, isTrue);
       });
+    });
+  });
+
+  group('Asset serialization', () {
+    test('serializes FileAsset', () async {
+      final asset = FileAsset('/path/to/file.txt');
+      final result = await PropertySerializer.serializeValue(asset);
+      expect(result.value.hasStructValue(), isTrue);
+      final struct = result.value.structValue;
+      expect(struct.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+      expect(struct.fields['path']?.stringValue, '/path/to/file.txt');
+    });
+
+    test('serializes StringAsset', () async {
+      final asset = StringAsset('inline content');
+      final result = await PropertySerializer.serializeValue(asset);
+      expect(result.value.hasStructValue(), isTrue);
+      final struct = result.value.structValue;
+      expect(struct.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+      expect(struct.fields['text']?.stringValue, 'inline content');
+    });
+
+    test('serializes RemoteAsset', () async {
+      final asset = RemoteAsset('https://example.com/file.js');
+      final result = await PropertySerializer.serializeValue(asset);
+      expect(result.value.hasStructValue(), isTrue);
+      final struct = result.value.structValue;
+      expect(struct.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+      expect(struct.fields['uri']?.stringValue, 'https://example.com/file.js');
+    });
+  });
+
+  group('Archive serialization', () {
+    test('serializes FileArchive', () async {
+      final archive = FileArchive('/path/to/archive.zip');
+      final result = await PropertySerializer.serializeValue(archive);
+      expect(result.value.hasStructValue(), isTrue);
+      final struct = result.value.structValue;
+      expect(struct.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+      expect(struct.fields['path']?.stringValue, '/path/to/archive.zip');
+    });
+
+    test('serializes RemoteArchive', () async {
+      final archive = RemoteArchive('https://example.com/archive.tar.gz');
+      final result = await PropertySerializer.serializeValue(archive);
+      expect(result.value.hasStructValue(), isTrue);
+      final struct = result.value.structValue;
+      expect(struct.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+      expect(struct.fields['uri']?.stringValue, 'https://example.com/archive.tar.gz');
+    });
+
+    test('serializes AssetArchive', () async {
+      final archive = AssetArchive({
+        'index.js': StringAsset('exports.handler = () => {};'),
+        'config.json': FileAsset('./config.json'),
+      });
+      final result = await PropertySerializer.serializeValue(archive);
+      expect(result.value.hasStructValue(), isTrue);
+      final struct = result.value.structValue;
+      expect(struct.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+
+      // Check assets field
+      final assetsStruct = struct.fields['assets']?.structValue;
+      expect(assetsStruct, isNotNull);
+
+      // Check that index.js is a StringAsset
+      final indexJs = assetsStruct!.fields['index.js']?.structValue;
+      expect(indexJs?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+      expect(indexJs?.fields['text']?.stringValue, 'exports.handler = () => {};');
+
+      // Check that config.json is a FileAsset
+      final configJson = assetsStruct.fields['config.json']?.structValue;
+      expect(configJson?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.assetSig);
+      expect(configJson?.fields['path']?.stringValue, './config.json');
+    });
+
+    test('serializes nested AssetArchive', () async {
+      final archive = AssetArchive({
+        'src/': AssetArchive({
+          'main.js': StringAsset('main'),
+        }),
+        'readme.txt': StringAsset('readme'),
+      });
+      final result = await PropertySerializer.serializeValue(archive);
+      expect(result.value.hasStructValue(), isTrue);
+
+      final struct = result.value.structValue;
+      final assetsStruct = struct.fields['assets']?.structValue;
+      expect(assetsStruct, isNotNull);
+
+      // Check nested archive
+      final srcArchive = assetsStruct!.fields['src/']?.structValue;
+      expect(srcArchive?.fields[PropertySignatures.sigKey]?.stringValue,
+          PropertySignatures.archiveSig);
+    });
+  });
+
+  group('Asset/Archive roundtrip', () {
+    test('FileAsset roundtrips', () async {
+      final original = FileAsset('/path/to/file.txt');
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+      expect(deserialized, isA<FileAsset>());
+      expect(deserialized, equals(original));
+    });
+
+    test('StringAsset roundtrips', () async {
+      final original = StringAsset('hello world');
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+      expect(deserialized, isA<StringAsset>());
+      expect(deserialized, equals(original));
+    });
+
+    test('RemoteAsset roundtrips', () async {
+      final original = RemoteAsset('https://example.com/file');
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+      expect(deserialized, isA<RemoteAsset>());
+      expect(deserialized, equals(original));
+    });
+
+    test('FileArchive roundtrips', () async {
+      final original = FileArchive('/path/to/archive.zip');
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+      expect(deserialized, isA<FileArchive>());
+      expect(deserialized, equals(original));
+    });
+
+    test('RemoteArchive roundtrips', () async {
+      final original = RemoteArchive('https://example.com/archive.tar.gz');
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+      expect(deserialized, isA<RemoteArchive>());
+      expect(deserialized, equals(original));
+    });
+
+    test('AssetArchive roundtrips', () async {
+      final original = AssetArchive({
+        'index.js': StringAsset('code'),
+        'config.json': FileAsset('./config.json'),
+      });
+      final serialized = await PropertySerializer.serializeValue(original);
+      final deserialized = PropertyDeserializer.deserializeValue(serialized.value);
+      expect(deserialized, isA<AssetArchive>());
+      final archive = deserialized as AssetArchive;
+      expect(archive.assets.length, 2);
+      expect(archive.assets['index.js'], isA<StringAsset>());
+      expect(archive.assets['config.json'], isA<FileAsset>());
     });
   });
 
@@ -524,6 +708,67 @@ void main() {
     test('RemoteArchive toString', () {
       final archive = RemoteArchive('https://example.com/archive.tar.gz');
       expect(archive.toString(), 'RemoteArchive(https://example.com/archive.tar.gz)');
+    });
+
+    test('AssetArchive toString', () {
+      final archive = AssetArchive({
+        'index.js': StringAsset('code'),
+        'config.json': FileAsset('./config.json'),
+      });
+      expect(archive.toString(), 'AssetArchive(2 entries)');
+    });
+
+    test('FileAsset equality', () {
+      final a = FileAsset('/path/to/file');
+      final b = FileAsset('/path/to/file');
+      final c = FileAsset('/other/path');
+      expect(a, equals(b));
+      expect(a, isNot(equals(c)));
+      expect(a.hashCode, equals(b.hashCode));
+    });
+
+    test('StringAsset equality', () {
+      final a = StringAsset('hello');
+      final b = StringAsset('hello');
+      final c = StringAsset('world');
+      expect(a, equals(b));
+      expect(a, isNot(equals(c)));
+      expect(a.hashCode, equals(b.hashCode));
+    });
+
+    test('RemoteAsset equality', () {
+      final a = RemoteAsset('https://example.com');
+      final b = RemoteAsset('https://example.com');
+      final c = RemoteAsset('https://other.com');
+      expect(a, equals(b));
+      expect(a, isNot(equals(c)));
+      expect(a.hashCode, equals(b.hashCode));
+    });
+
+    test('FileArchive equality', () {
+      final a = FileArchive('/path/to/archive');
+      final b = FileArchive('/path/to/archive');
+      final c = FileArchive('/other/path');
+      expect(a, equals(b));
+      expect(a, isNot(equals(c)));
+      expect(a.hashCode, equals(b.hashCode));
+    });
+
+    test('RemoteArchive equality', () {
+      final a = RemoteArchive('https://example.com/archive.zip');
+      final b = RemoteArchive('https://example.com/archive.zip');
+      final c = RemoteArchive('https://other.com/archive.zip');
+      expect(a, equals(b));
+      expect(a, isNot(equals(c)));
+      expect(a.hashCode, equals(b.hashCode));
+    });
+
+    test('AssetArchive equality', () {
+      final a = AssetArchive({'file': StringAsset('content')});
+      final b = AssetArchive({'file': StringAsset('content')});
+      final c = AssetArchive({'file': StringAsset('other')});
+      expect(a, equals(b));
+      expect(a, isNot(equals(c)));
     });
   });
 

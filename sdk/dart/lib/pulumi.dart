@@ -28,6 +28,12 @@ export 'src/invoke.dart';
 // Runtime utilities (used by generated provider SDKs)
 export 'src/runtime/serialization.dart' show PropertyDeserializer;
 
+// Asset and Archive types
+export 'src/runtime/serialization.dart'
+    show Asset, FileAsset, StringAsset, RemoteAsset;
+export 'src/runtime/serialization.dart'
+    show Archive, FileArchive, RemoteArchive, AssetArchive;
+
 // Proto-generated gRPC clients (internal use only)
 // Note: alias.pb.dart Alias is hidden to avoid conflict with SDK Alias type
 export 'src/proto/pulumi/resource.pb.dart';

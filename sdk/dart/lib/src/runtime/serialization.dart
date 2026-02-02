@@ -236,6 +236,14 @@ class PropertySerializer {
       return await _serializeMap(value);
     }
 
+    if (value is Asset) {
+      return _serializeAsset(value);
+    }
+
+    if (value is Archive) {
+      return await _serializeArchive(value);
+    }
+
     // For unsupported types, try to convert to string
     return SerializedValue(value: Value()..stringValue = value.toString());
   }
@@ -275,6 +283,59 @@ class PropertySerializer {
       allDependencies.addAll(result.dependencies);
       if (result.containsSecrets) containsSecrets = true;
       if (!result.isKnown) isKnown = false;
+    }
+
+    return SerializedValue(
+      value: Value()..structValue = struct,
+      dependencies: allDependencies,
+      containsSecrets: containsSecrets,
+      isKnown: isKnown,
+    );
+  }
+
+  /// Serializes an Asset to its protobuf representation.
+  static SerializedValue _serializeAsset(Asset asset) {
+    final struct = Struct()
+      ..fields[PropertySignatures.sigKey] =
+          (Value()..stringValue = PropertySignatures.assetSig);
+
+    switch (asset) {
+      case FileAsset(:final path):
+        struct.fields['path'] = Value()..stringValue = path;
+      case StringAsset(:final text):
+        struct.fields['text'] = Value()..stringValue = text;
+      case RemoteAsset(:final uri):
+        struct.fields['uri'] = Value()..stringValue = uri;
+    }
+
+    return SerializedValue(value: Value()..structValue = struct);
+  }
+
+  /// Serializes an Archive to its protobuf representation.
+  static Future<SerializedValue> _serializeArchive(Archive archive) async {
+    final struct = Struct()
+      ..fields[PropertySignatures.sigKey] =
+          (Value()..stringValue = PropertySignatures.archiveSig);
+
+    final allDependencies = <String>{};
+    var containsSecrets = false;
+    var isKnown = true;
+
+    switch (archive) {
+      case FileArchive(:final path):
+        struct.fields['path'] = Value()..stringValue = path;
+      case RemoteArchive(:final uri):
+        struct.fields['uri'] = Value()..stringValue = uri;
+      case AssetArchive(:final assets):
+        final assetsStruct = Struct();
+        for (final entry in assets.entries) {
+          final result = await serializeValue(entry.value);
+          assetsStruct.fields[entry.key] = result.value;
+          allDependencies.addAll(result.dependencies);
+          if (result.containsSecrets) containsSecrets = true;
+          if (!result.isKnown) isKnown = false;
+        }
+        struct.fields['assets'] = Value()..structValue = assetsStruct;
     }
 
     return SerializedValue(
@@ -394,6 +455,17 @@ class PropertyDeserializer {
         }
         if (struct.fields.containsKey('uri')) {
           return RemoteArchive(struct.fields['uri']!.stringValue);
+        }
+        if (struct.fields.containsKey('assets')) {
+          final assetsStruct = struct.fields['assets']!.structValue;
+          final assets = <String, Object>{};
+          for (final entry in assetsStruct.fields.entries) {
+            final deserialized = deserializeValue(entry.value);
+            if (deserialized is Asset || deserialized is Archive) {
+              assets[entry.key] = deserialized;
+            }
+          }
+          return AssetArchive(assets);
         }
         return null;
       }
@@ -519,57 +591,249 @@ class ResourceReference {
   String toString() => 'ResourceReference(urn: $urn, id: $id)';
 }
 
-/// Represents a file asset.
-class FileAsset {
+/// Base class for Pulumi assets.
+///
+/// An Asset is a blob of text or data that is managed by Pulumi. Assets can be:
+/// - [FileAsset]: Contents read from a file on disk
+/// - [StringAsset]: Contents provided as a literal string
+/// - [RemoteAsset]: Contents fetched from a remote URI
+///
+/// Assets are typically used for resources that need file-like content,
+/// such as AWS Lambda function code, S3 object contents, or configuration files.
+///
+/// ## Example
+///
+/// ```dart
+/// // Inline code as a string
+/// final code = StringAsset('''
+///   exports.handler = async (event) => {
+///     return { statusCode: 200, body: "Hello!" };
+///   };
+/// ''');
+///
+/// // Code from a file
+/// final fileCode = FileAsset('./handler.js');
+///
+/// // Code from a URL
+/// final remoteCode = RemoteAsset('https://example.com/handler.js');
+/// ```
+sealed class Asset {}
+
+/// An asset whose contents are read from a file on disk.
+///
+/// The file is read at deployment time, and its contents become the asset data.
+/// The path can be absolute or relative to the Pulumi program's working directory.
+///
+/// ## Example
+///
+/// ```dart
+/// final lambdaCode = FileAsset('./src/handler.js');
+/// ```
+class FileAsset extends Asset {
   /// Path to the file.
   final String path;
 
+  /// Creates a file asset from the given path.
   FileAsset(this.path);
 
   @override
   String toString() => 'FileAsset($path)';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is FileAsset && path == other.path;
+
+  @override
+  int get hashCode => path.hashCode;
 }
 
-/// Represents a string asset.
-class StringAsset {
+/// An asset whose contents are provided as a literal string.
+///
+/// Use this when you want to define the asset content inline in your code.
+///
+/// ## Example
+///
+/// ```dart
+/// final config = StringAsset('''
+/// server:
+///   port: 8080
+///   host: localhost
+/// ''');
+/// ```
+class StringAsset extends Asset {
   /// The text content.
   final String text;
 
+  /// Creates a string asset with the given content.
   StringAsset(this.text);
 
   @override
   String toString() => 'StringAsset(${text.length} chars)';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is StringAsset && text == other.text;
+
+  @override
+  int get hashCode => text.hashCode;
 }
 
-/// Represents a remote asset.
-class RemoteAsset {
+/// An asset whose contents are fetched from a remote URI.
+///
+/// The URI is fetched at deployment time, and its contents become the asset data.
+/// Supports http, https, and other URI schemes supported by the Pulumi engine.
+///
+/// ## Example
+///
+/// ```dart
+/// final script = RemoteAsset('https://example.com/install.sh');
+/// ```
+class RemoteAsset extends Asset {
   /// URI of the remote asset.
   final String uri;
 
+  /// Creates a remote asset from the given URI.
   RemoteAsset(this.uri);
 
   @override
   String toString() => 'RemoteAsset($uri)';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is RemoteAsset && uri == other.uri;
+
+  @override
+  int get hashCode => uri.hashCode;
 }
 
-/// Represents a file archive.
-class FileArchive {
-  /// Path to the archive file.
+/// Base class for Pulumi archives.
+///
+/// An Archive is a collection of files that is managed by Pulumi. Archives can be:
+/// - [FileArchive]: Contents read from a file or directory on disk
+/// - [RemoteArchive]: Contents fetched from a remote URI
+/// - [AssetArchive]: Composed from a map of assets and/or nested archives
+///
+/// Archives are typically used for resources that need collections of files,
+/// such as AWS Lambda deployment packages or Azure Functions.
+///
+/// ## Example
+///
+/// ```dart
+/// // Archive from a directory
+/// final code = FileArchive('./dist');
+///
+/// // Archive from a zip file
+/// final zipCode = FileArchive('./function.zip');
+///
+/// // Archive from a remote URL
+/// final remoteCode = RemoteArchive('https://example.com/package.zip');
+///
+/// // Compose an archive from individual assets
+/// final composed = AssetArchive({
+///   'index.js': StringAsset('exports.handler = () => {};'),
+///   'package.json': FileAsset('./package.json'),
+/// });
+/// ```
+sealed class Archive {}
+
+/// An archive whose contents are read from a file or directory on disk.
+///
+/// If the path points to a file, it should be a zip, tar, or tar.gz archive.
+/// If the path points to a directory, its contents are recursively archived.
+///
+/// ## Example
+///
+/// ```dart
+/// // Archive from a directory
+/// final code = FileArchive('./dist');
+///
+/// // Archive from a zip file
+/// final zipCode = FileArchive('./function.zip');
+/// ```
+class FileArchive extends Archive {
+  /// Path to the archive file or directory.
   final String path;
 
+  /// Creates a file archive from the given path.
   FileArchive(this.path);
 
   @override
   String toString() => 'FileArchive($path)';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is FileArchive && path == other.path;
+
+  @override
+  int get hashCode => path.hashCode;
 }
 
-/// Represents a remote archive.
-class RemoteArchive {
+/// An archive whose contents are fetched from a remote URI.
+///
+/// The URI should point to a zip, tar, or tar.gz archive.
+///
+/// ## Example
+///
+/// ```dart
+/// final code = RemoteArchive('https://example.com/package.zip');
+/// ```
+class RemoteArchive extends Archive {
   /// URI of the remote archive.
   final String uri;
 
+  /// Creates a remote archive from the given URI.
   RemoteArchive(this.uri);
 
   @override
   String toString() => 'RemoteArchive($uri)';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) || other is RemoteArchive && uri == other.uri;
+
+  @override
+  int get hashCode => uri.hashCode;
+}
+
+/// An archive composed from a map of named assets and/or nested archives.
+///
+/// This allows you to create archives programmatically from individual assets
+/// or other archives. The keys are paths within the archive.
+///
+/// ## Example
+///
+/// ```dart
+/// final archive = AssetArchive({
+///   'index.js': StringAsset('exports.handler = () => {};'),
+///   'lib/utils.js': FileAsset('./src/utils.js'),
+///   'vendor/': FileArchive('./node_modules'),
+/// });
+/// ```
+class AssetArchive extends Archive {
+  /// Map of archive paths to their contents (Asset or Archive).
+  final Map<String, Object> assets;
+
+  /// Creates an asset archive from the given map.
+  ///
+  /// The values must be either [Asset] or [Archive] instances.
+  AssetArchive(this.assets);
+
+  @override
+  String toString() => 'AssetArchive(${assets.length} entries)';
+
+  @override
+  bool operator ==(Object other) =>
+      identical(this, other) ||
+      other is AssetArchive && _mapsEqual(assets, other.assets);
+
+  @override
+  int get hashCode => Object.hashAll(assets.entries);
+
+  static bool _mapsEqual(Map<String, Object> a, Map<String, Object> b) {
+    if (a.length != b.length) return false;
+    for (final key in a.keys) {
+      if (!b.containsKey(key) || a[key] != b[key]) return false;
+    }
+    return true;
+  }
 }

@@ -454,11 +454,9 @@ func typeToDart(t schema.Type, unwrapInputs bool) string {
 		case schema.StringType:
 			return "String"
 		case schema.ArchiveType:
-			// TODO: Implement Archive type in Dart SDK
-			return "Object"
+			return "Archive"
 		case schema.AssetType:
-			// TODO: Implement Asset type in Dart SDK
-			return "Object"
+			return "Asset"
 		case schema.JSONType:
 			return "Object"
 		case schema.AnyType:
