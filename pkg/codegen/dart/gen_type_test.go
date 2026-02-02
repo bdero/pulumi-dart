@@ -524,8 +524,8 @@ func TestTypeToDartSpecialTypes(t *testing.T) {
 		input    schema.Type
 		expected string
 	}{
-		{"archive", schema.ArchiveType, "Archive"},
-		{"asset", schema.AssetType, "Asset"},
+		{"archive", schema.ArchiveType, "Object"}, // TODO: Implement Archive type in Dart SDK
+		{"asset", schema.AssetType, "Object"},     // TODO: Implement Asset type in Dart SDK
 		{"json", schema.JSONType, "Object"},
 		{"any", schema.AnyType, "Object"},
 	}

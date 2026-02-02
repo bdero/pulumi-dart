@@ -13,7 +13,7 @@ import (
 func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, error) {
 	var buf bytes.Buffer
 
-	className := tokenToClassName(resource.Token)
+	className := tokenToQualifiedClassName(resource.Token)
 	argsClassName := className + "Args"
 
 	// File header
@@ -95,7 +95,7 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 	buf.WriteString("  @override\n")
 	buf.WriteString("  Map<String, Input<Object?>?> get inputs => {\n")
 	for _, prop := range resource.InputProperties {
-		buf.WriteString(fmt.Sprintf("    '%s': _args.%s,\n", prop.Name, toCamelCase(prop.Name)))
+		buf.WriteString(fmt.Sprintf("    '%s': _args.%s,\n", prop.Name, toResourceArgsPropertyName(prop.Name)))
 	}
 	buf.WriteString("  };\n\n")
 
@@ -135,10 +135,11 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 			buf.WriteString(fmt.Sprintf("  @Deprecated('%s')\n", escapeDartString(prop.DeprecationMessage)))
 		}
 		dartType := typeToDart(prop.Type, true)
+		argsPropName := toResourceArgsPropertyName(prop.Name)
 		if !prop.IsRequired() {
-			buf.WriteString(fmt.Sprintf("  final Input<%s>? %s;\n\n", dartType, toCamelCase(prop.Name)))
+			buf.WriteString(fmt.Sprintf("  final Input<%s>? %s;\n\n", dartType, argsPropName))
 		} else {
-			buf.WriteString(fmt.Sprintf("  final Input<%s> %s;\n\n", dartType, toCamelCase(prop.Name)))
+			buf.WriteString(fmt.Sprintf("  final Input<%s> %s;\n\n", dartType, argsPropName))
 		}
 	}
 
@@ -146,10 +147,10 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 	if len(resource.InputProperties) > 0 {
 		buf.WriteString(fmt.Sprintf("  %s({\n", argsClassName))
 		for _, prop := range requiredProps {
-			buf.WriteString(fmt.Sprintf("    required this.%s,\n", toCamelCase(prop.Name)))
+			buf.WriteString(fmt.Sprintf("    required this.%s,\n", toResourceArgsPropertyName(prop.Name)))
 		}
 		for _, prop := range optionalProps {
-			buf.WriteString(fmt.Sprintf("    this.%s,\n", toCamelCase(prop.Name)))
+			buf.WriteString(fmt.Sprintf("    this.%s,\n", toResourceArgsPropertyName(prop.Name)))
 		}
 		buf.WriteString("  });\n")
 	} else {
@@ -296,13 +297,13 @@ func generatePrimitiveExtraction(t schema.Type, valueExpr string, isOptional boo
 		// The actual deserialization will depend on having proper type converters
 		switch tt := t.(type) {
 		case *schema.ObjectType:
-			className := tokenToQualifiedClassName(tt.Token)
+			className := tokenToQualifiedTypeClassName(tt.Token)
 			if isOptional {
 				return fmt.Sprintf("%s != null ? %s.fromPropertyMap(PropertyDeserializer.deserializeStruct(%s!.structValue) as Map<String, dynamic>) : null", valueExpr, className, valueExpr)
 			}
 			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(%s?.structValue ?? Struct()) as Map<String, dynamic>)", className, valueExpr)
 		case *schema.EnumType:
-			className := tokenToQualifiedClassName(tt.Token)
+			className := tokenToQualifiedTypeClassName(tt.Token)
 			if isOptional {
 				return fmt.Sprintf("%s?.stringValue != null ? %s.fromValue(%s!.stringValue) : null", valueExpr, className, valueExpr)
 			}
@@ -330,7 +331,7 @@ func generateListElementExtraction(elemType schema.Type) string {
 	default:
 		switch tt := elemType.(type) {
 		case *schema.ObjectType:
-			className := tokenToQualifiedClassName(tt.Token)
+			className := tokenToQualifiedTypeClassName(tt.Token)
 			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(v.structValue) as Map<String, dynamic>)", className)
 		default:
 			return "v.stringValue"
@@ -352,7 +353,7 @@ func generateMapValueExtraction(elemType schema.Type) string {
 	default:
 		switch tt := elemType.(type) {
 		case *schema.ObjectType:
-			className := tokenToQualifiedClassName(tt.Token)
+			className := tokenToQualifiedTypeClassName(tt.Token)
 			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(e.value.structValue) as Map<String, dynamic>)", className)
 		default:
 			return "e.value.stringValue"

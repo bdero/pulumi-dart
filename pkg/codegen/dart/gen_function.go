@@ -53,7 +53,11 @@ func generateFunction(pkg *schema.Package, function *schema.Function) ([]byte, e
 	// Determine return type
 	hasOutputs := function.ReturnType != nil
 
-	buf.WriteString(fmt.Sprintf("/// %s\n", function.Comment))
+	if function.Comment != "" {
+		for _, line := range strings.Split(function.Comment, "\n") {
+			buf.WriteString(fmt.Sprintf("/// %s\n", line))
+		}
+	}
 	if hasOutputs {
 		buf.WriteString(fmt.Sprintf("Future<%s> %s({\n", resultClassName, funcName))
 	} else {

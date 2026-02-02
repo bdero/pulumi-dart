@@ -44,7 +44,7 @@ func TestGenerateFunction(t *testing.T) {
 		}
 
 		// Check async function signature
-		if !strings.Contains(result, "Future<GetAvailabilityZonesResult> getAvailabilityZones({") {
+		if !strings.Contains(result, "Future<IndexGetAvailabilityZonesResult> indexGetAvailabilityZones({") {
 			t.Error("Expected async function signature not found")
 		}
 
@@ -80,13 +80,13 @@ func TestGenerateFunction(t *testing.T) {
 			t.Error("Expected invokeAsync call not found")
 		}
 
-		// Check return statement - function uses GetAvailabilityZonesResult
-		if !strings.Contains(result, "GetAvailabilityZonesResult.fromPropertyMap(result)") {
+		// Check return statement - function uses IndexGetAvailabilityZonesResult
+		if !strings.Contains(result, "IndexGetAvailabilityZonesResult.fromPropertyMap(result)") {
 			t.Error("Expected return statement not found")
 		}
 
 		// Check Result class
-		if !strings.Contains(result, "class GetAvailabilityZonesResult") {
+		if !strings.Contains(result, "class IndexGetAvailabilityZonesResult") {
 			t.Error("Expected Result class not found")
 		}
 		if !strings.Contains(result, "final String id;") {
@@ -126,7 +126,7 @@ func TestGenerateFunction(t *testing.T) {
 		result := string(content)
 
 		// Check function has options parameter
-		if !strings.Contains(result, "Future<GetCurrentUserResult> getCurrentUser({") {
+		if !strings.Contains(result, "Future<IndexGetCurrentUserResult> indexGetCurrentUser({") {
 			t.Error("Expected function signature not found")
 		}
 		if !strings.Contains(result, "InvokeOptions? options,") {
@@ -159,7 +159,7 @@ func TestGenerateFunction(t *testing.T) {
 		result := string(content)
 
 		// Check void return type
-		if !strings.Contains(result, "Future<void> triggerBuild(") {
+		if !strings.Contains(result, "Future<void> indexTriggerBuild(") {
 			t.Error("Expected Future<void> return type not found")
 		}
 
@@ -503,10 +503,10 @@ func TestFunctionTokenConversion(t *testing.T) {
 			token    string
 			expected string
 		}{
-			{"aws:ec2:getAvailabilityZones", "getAvailabilityZones"},
-			{"azure:compute:getVirtualMachine", "getVirtualMachine"},
-			{"test:index:simpleFunction", "simpleFunction"},
-			{"pkg:module/sub:getData", "getData"},
+			{"aws:ec2:getAvailabilityZones", "ec2GetAvailabilityZones"},
+			{"azure:compute:getVirtualMachine", "computeGetVirtualMachine"},
+			{"test:index:simpleFunction", "indexSimpleFunction"},
+			{"pkg:module/sub:getData", "moduleGetData"},
 		}
 
 		for _, tt := range tests {

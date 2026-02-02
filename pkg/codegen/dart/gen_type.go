@@ -12,7 +12,7 @@ import (
 func generateType(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, error) {
 	var buf bytes.Buffer
 
-	className := tokenToQualifiedClassName(objectType.Token)
+	className := tokenToQualifiedTypeClassName(objectType.Token)
 
 	// File header
 	buf.WriteString(fmt.Sprintf("/// Generated type class for %s.\n", objectType.Token))
@@ -129,9 +129,9 @@ func generateType(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, e
 func generateTypeArgs(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, error) {
 	var buf bytes.Buffer
 
-	className := tokenToQualifiedClassName(objectType.Token) + "Args"
+	className := tokenToQualifiedTypeClassName(objectType.Token) + "Args"
 
-	buf.WriteString(fmt.Sprintf("/// Input arguments for %s.\n", tokenToQualifiedClassName(objectType.Token)))
+	buf.WriteString(fmt.Sprintf("/// Input arguments for %s.\n", tokenToQualifiedTypeClassName(objectType.Token)))
 	buf.WriteString(fmt.Sprintf("class %s {\n", className))
 
 	// Separate required and optional properties
@@ -212,14 +212,14 @@ func generatePropertyMapExtraction(t schema.Type, valueExpr string, isOptional b
 		return fmt.Sprintf("(%s as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, %s)) ?? <String, %s>{}", valueExpr, elemExtract, dartType)
 
 	case *schema.ObjectType:
-		className := tokenToQualifiedClassName(tt.Token)
+		className := tokenToQualifiedTypeClassName(tt.Token)
 		if isOptional {
 			return fmt.Sprintf("%s != null ? %s.fromPropertyMap(%s as Map<String, dynamic>) : null", valueExpr, className, valueExpr)
 		}
 		return fmt.Sprintf("%s.fromPropertyMap(%s as Map<String, dynamic>)", className, valueExpr)
 
 	case *schema.EnumType:
-		className := tokenToQualifiedClassName(tt.Token)
+		className := tokenToQualifiedTypeClassName(tt.Token)
 		if isOptional {
 			return fmt.Sprintf("%s != null ? %s.fromValue(%s) : null", valueExpr, className, valueExpr)
 		}
@@ -239,10 +239,10 @@ func generatePropertyMapExtraction(t schema.Type, valueExpr string, isOptional b
 func generatePropertyMapListElementExtraction(elemType schema.Type) string {
 	switch tt := elemType.(type) {
 	case *schema.ObjectType:
-		className := tokenToQualifiedClassName(tt.Token)
+		className := tokenToQualifiedTypeClassName(tt.Token)
 		return fmt.Sprintf("%s.fromPropertyMap(e as Map<String, dynamic>)", className)
 	case *schema.EnumType:
-		className := tokenToQualifiedClassName(tt.Token)
+		className := tokenToQualifiedTypeClassName(tt.Token)
 		return fmt.Sprintf("%s.fromValue(e)", className)
 	default:
 		dartType := typeToDart(elemType, true)
@@ -254,10 +254,10 @@ func generatePropertyMapListElementExtraction(elemType schema.Type) string {
 func generatePropertyMapMapValueExtraction(elemType schema.Type) string {
 	switch tt := elemType.(type) {
 	case *schema.ObjectType:
-		className := tokenToQualifiedClassName(tt.Token)
+		className := tokenToQualifiedTypeClassName(tt.Token)
 		return fmt.Sprintf("%s.fromPropertyMap(v as Map<String, dynamic>)", className)
 	case *schema.EnumType:
-		className := tokenToQualifiedClassName(tt.Token)
+		className := tokenToQualifiedTypeClassName(tt.Token)
 		return fmt.Sprintf("%s.fromValue(v)", className)
 	default:
 		dartType := typeToDart(elemType, true)

@@ -29,6 +29,20 @@ var resourceReservedNames = map[string]bool{
 	"toString":         true, // conflicts with Object.toString()
 	"noSuchMethod":     true, // conflicts with Object.noSuchMethod
 	"name":             true, // conflicts with constructor parameter
+	"type":             true, // conflicts with Resource.type getter
+	"options":          true, // conflicts with Resource.options getter
+	"id":               true, // conflicts with CustomResource.id property
+	"override":         true, // conflicts with @override annotation visibility
+	"properties":       true, // conflicts with processOutputs parameter
+}
+
+// objectReservedNames contains property names that conflict with Object base class members.
+// These names get suffixed with "Value" when used as property names in any class.
+var objectReservedNames = map[string]bool{
+	"hashCode":    true, // conflicts with Object.hashCode
+	"runtimeType": true, // conflicts with Object.runtimeType
+	"toString":    true, // conflicts with Object.toString()
+	"noSuchMethod": true, // conflicts with Object.noSuchMethod
 }
 
 // Dart reserved keywords that need escaping.
@@ -240,19 +254,74 @@ func tokenToQualifiedClassName(token string) string {
 	return toPascalCase(module) + toPascalCase(name)
 }
 
-// tokenToFunctionName extracts a function name from a Pulumi token.
+// isTypeToken returns true if the token represents a type (as opposed to a resource).
+// Types have PascalCase in the submodule path (e.g., "gcp:bigquery/DatasetAccess:DatasetAccess")
+// while resources have camelCase (e.g., "gcp:bigquery/datasetAccess:DatasetAccess").
+func isTypeToken(token string) bool {
+	parts := strings.Split(token, ":")
+	if len(parts) < 3 {
+		return false
+	}
+	module := parts[1]
+	// Check if there's a submodule path
+	if idx := strings.Index(module, "/"); idx != -1 {
+		submodule := module[idx+1:]
+		// If the submodule starts with an uppercase letter, it's a type
+		if len(submodule) > 0 && submodule[0] >= 'A' && submodule[0] <= 'Z' {
+			return true
+		}
+	}
+	return false
+}
+
+// tokenToQualifiedTypeClassName is like tokenToQualifiedClassName but may append
+// a suffix to avoid collisions between types and resources with the same name.
+// When a type's token indicates it could collide with a resource (both have the
+// same module and name), this function ensures uniqueness.
+func tokenToQualifiedTypeClassName(token string) string {
+	baseName := tokenToQualifiedClassName(token)
+	// Types that could collide with resources get a "Type" suffix
+	// A type token has PascalCase in the submodule path, indicating it's a
+	// standalone type that might share a name with a resource
+	if isTypeToken(token) {
+		return baseName + "Type"
+	}
+	// Types whose name ends with "Result" would collide with function result
+	// classes (which are named FunctionNameResult), so add "Type" suffix
+	if strings.HasSuffix(baseName, "Result") {
+		return baseName + "Type"
+	}
+	return baseName
+}
+
+// tokenToFunctionName extracts a qualified function name from a Pulumi token.
+// Similar to tokenToQualifiedClassName, this includes the module name as a prefix
+// to avoid collisions when the same function name exists in different modules
+// (e.g., "alloydb:getInstance" and "compute:getInstance" become
+// "alloydbGetInstance" and "computeGetInstance").
 func tokenToFunctionName(token string) string {
 	parts := strings.Split(token, ":")
 	if len(parts) < 3 {
 		return makeValidIdentifier(toCamelCase(token))
 	}
-	// The last part is the name, but may contain submodule path (e.g., "random/terraformConfig")
+
+	// Get the module part (second element) and the name (last element)
+	module := parts[1]
 	name := parts[len(parts)-1]
+
+	// Handle submodules (e.g., "s3/bucket" -> just "s3")
+	// We take only the first part of the module path to keep names shorter
+	if idx := strings.Index(module, "/"); idx != -1 {
+		module = module[:idx]
+	}
+
 	// If the name contains a slash, take only the part after the slash
 	if idx := strings.LastIndex(name, "/"); idx != -1 {
 		name = name[idx+1:]
 	}
-	return makeValidIdentifier(toCamelCase(name))
+
+	// Combine module and name: "alloydb" + "getInstance" -> "alloydbGetInstance"
+	return makeValidIdentifier(toCamelCase(module) + toPascalCase(name))
 }
 
 // tokenToModulePath extracts a module path from a Pulumi token.
@@ -327,10 +396,10 @@ func typeToDart(t schema.Type, unwrapInputs bool) string {
 		return "Map<String, " + elementType + ">"
 
 	case *schema.ObjectType:
-		return tokenToQualifiedClassName(tt.Token)
+		return tokenToQualifiedTypeClassName(tt.Token)
 
 	case *schema.EnumType:
-		return tokenToQualifiedClassName(tt.Token)
+		return tokenToQualifiedTypeClassName(tt.Token)
 
 	case *schema.TokenType:
 		if tt.UnderlyingType != nil {
@@ -385,9 +454,11 @@ func typeToDart(t schema.Type, unwrapInputs bool) string {
 		case schema.StringType:
 			return "String"
 		case schema.ArchiveType:
-			return "Archive"
+			// TODO: Implement Archive type in Dart SDK
+			return "Object"
 		case schema.AssetType:
-			return "Asset"
+			// TODO: Implement Asset type in Dart SDK
+			return "Object"
 		case schema.JSONType:
 			return "Object"
 		case schema.AnyType:
@@ -444,5 +515,9 @@ func toResourcePropertyName(name string) string {
 // toResourceArgsPropertyName converts a property name to a valid Dart identifier
 // for use in Args classes (which don't inherit from Resource, so have fewer conflicts).
 func toResourceArgsPropertyName(name string) string {
-	return toCamelCase(name)
+	camelName := toCamelCase(name)
+	if objectReservedNames[camelName] {
+		return camelName + "Value"
+	}
+	return camelName
 }

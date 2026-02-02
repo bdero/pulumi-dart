@@ -46,31 +46,32 @@ func TestGenerateResource(t *testing.T) {
 		}
 
 		// Check class declaration - extends CustomResource
-		if !strings.Contains(result, "class MyResource extends CustomResource {") {
+		if !strings.Contains(result, "class IndexMyResource extends CustomResource {") {
 			t.Error("Expected CustomResource class declaration not found")
 		}
 
 		// Check output properties with late final Output<T>
-		if !strings.Contains(result, "late final Output<String> id;") {
-			t.Error("Expected id output property not found")
+		// Note: "id" is a reserved name (conflicts with CustomResource.id) so it becomes "idValue"
+		if !strings.Contains(result, "late final Output<String> idValue;") {
+			t.Error("Expected idValue output property not found")
 		}
 		if !strings.Contains(result, "late final Output<String> arn;") {
 			t.Error("Expected arn output property not found")
 		}
 
 		// Check _args field
-		if !strings.Contains(result, "final MyResourceArgs _args;") {
+		if !strings.Contains(result, "final IndexMyResourceArgs _args;") {
 			t.Error("Expected _args field not found")
 		}
 
 		// Check constructor
-		if !strings.Contains(result, "MyResource(") {
+		if !strings.Contains(result, "IndexMyResource(") {
 			t.Error("Expected constructor not found")
 		}
 		if !strings.Contains(result, "String name,") {
 			t.Error("Expected name parameter in constructor not found")
 		}
-		if !strings.Contains(result, "MyResourceArgs args,") {
+		if !strings.Contains(result, "IndexMyResourceArgs args,") {
 			t.Error("Expected args parameter in constructor not found")
 		}
 		if !strings.Contains(result, "CustomResourceOptions? options,") {
@@ -131,7 +132,7 @@ func TestGenerateResource(t *testing.T) {
 		result := string(content)
 
 		// Check extends ComponentResource
-		if !strings.Contains(result, "class MyComponent extends ComponentResource {") {
+		if !strings.Contains(result, "class IndexMyComponent extends ComponentResource {") {
 			t.Error("Expected ComponentResource class declaration not found")
 		}
 
@@ -359,7 +360,7 @@ func TestGenerateResourceArgsClass(t *testing.T) {
 		result := string(content)
 
 		// Check Args class declaration
-		if !strings.Contains(result, "class TestResourceArgs {") {
+		if !strings.Contains(result, "class IndexTestResourceArgs {") {
 			t.Error("Expected Args class declaration not found")
 		}
 
@@ -394,7 +395,7 @@ func TestGenerateResourceArgsClass(t *testing.T) {
 		}
 
 		// Check documentation
-		if !strings.Contains(result, "/// Arguments for creating a TestResource resource.") {
+		if !strings.Contains(result, "/// Arguments for creating a IndexTestResource resource.") {
 			t.Error("Expected Args class documentation not found")
 		}
 		if !strings.Contains(result, "/// The name.") {
@@ -420,7 +421,7 @@ func TestGenerateResourceArgsClass(t *testing.T) {
 		result := string(content)
 
 		// Check empty constructor
-		if !strings.Contains(result, "EmptyResourceArgs();") {
+		if !strings.Contains(result, "IndexEmptyResourceArgs();") {
 			t.Error("Expected empty Args constructor not found")
 		}
 	})

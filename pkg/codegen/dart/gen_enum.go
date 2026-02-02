@@ -12,7 +12,7 @@ import (
 func generateEnum(pkg *schema.Package, enumType *schema.EnumType) ([]byte, error) {
 	var buf bytes.Buffer
 
-	enumName := tokenToQualifiedClassName(enumType.Token)
+	enumName := tokenToQualifiedTypeClassName(enumType.Token)
 
 	// File header
 	buf.WriteString(fmt.Sprintf("/// Generated enum type for %s.\n", enumType.Token))
