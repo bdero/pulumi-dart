@@ -16,12 +16,12 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 	className := tokenToQualifiedClassName(resource.Token)
 	argsClassName := className + "Args"
 
-	// File header
-	buf.WriteString(fmt.Sprintf("/// Generated resource class for %s.\n", resource.Token))
-	buf.WriteString("///\n")
+	// File header (using regular comments to avoid dangling_library_doc_comments lint warning)
+	buf.WriteString(fmt.Sprintf("// Generated resource class for %s.\n", resource.Token))
+	buf.WriteString("//\n")
 	if resource.Comment != "" {
 		for _, line := range strings.Split(resource.Comment, "\n") {
-			buf.WriteString(fmt.Sprintf("/// %s\n", line))
+			buf.WriteString(fmt.Sprintf("// %s\n", line))
 		}
 	}
 	buf.WriteString("\n")
@@ -279,7 +279,7 @@ func generatePrimitiveExtraction(t schema.Type, valueExpr string, isOptional boo
 		return fmt.Sprintf("%s?.boolValue ?? false", valueExpr)
 	case schema.IntType:
 		if isOptional {
-			return fmt.Sprintf("%s?.numberValue?.toInt()", valueExpr)
+			return fmt.Sprintf("%s?.numberValue.toInt()", valueExpr)
 		}
 		return fmt.Sprintf("(%s?.numberValue ?? 0).toInt()", valueExpr)
 	case schema.NumberType:

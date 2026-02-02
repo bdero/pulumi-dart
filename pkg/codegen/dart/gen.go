@@ -201,8 +201,8 @@ linter:
   rules:
     - prefer_final_locals
     - prefer_single_quotes
-    - sort_constructors_first
-    - sort_unnamed_constructors_first
+    # Note: sort_constructors_first disabled for generated code compatibility
+    # Note: sort_unnamed_constructors_first disabled for generated code compatibility
 `)
 }
 

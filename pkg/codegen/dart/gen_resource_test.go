@@ -100,8 +100,8 @@ func TestGenerateResource(t *testing.T) {
 			t.Error("Expected super.processOutputs call not found")
 		}
 
-		// Check documentation
-		if !strings.Contains(result, "/// A test resource for demonstration.") {
+		// Check documentation (file header uses regular comments to avoid lint warnings)
+		if !strings.Contains(result, "// A test resource for demonstration.") {
 			t.Error("Expected resource documentation not found")
 		}
 		if !strings.Contains(result, "/// The resource name.") {
@@ -1362,14 +1362,14 @@ It must be a valid JSON string.`,
 
 		result := string(content)
 
-		// Check that multiline comments are properly formatted
-		if !strings.Contains(result, "/// A resource with detailed documentation.") {
+		// Check that multiline comments are properly formatted (file header uses regular comments)
+		if !strings.Contains(result, "// A resource with detailed documentation.") {
 			t.Error("Expected first line of resource documentation not found")
 		}
-		if !strings.Contains(result, "/// - First thing") {
+		if !strings.Contains(result, "// - First thing") {
 			t.Error("Expected bullet point in documentation not found")
 		}
-		if !strings.Contains(result, "/// Use it carefully.") {
+		if !strings.Contains(result, "// Use it carefully.") {
 			t.Error("Expected last line of resource documentation not found")
 		}
 		if !strings.Contains(result, "/// The configuration string.") {
@@ -1552,8 +1552,8 @@ func TestGenerateOutputPropertyDeserializationOptionalPrimitives(t *testing.T) {
 			t.Error("Expected Output.of( not found")
 		}
 		// Optional int should use nullable accessor with toInt
-		if !strings.Contains(result, "?.numberValue?.toInt()") {
-			t.Error("Expected nullable numberValue?.toInt() accessor not found")
+		if !strings.Contains(result, "?.numberValue.toInt()") {
+			t.Error("Expected nullable numberValue.toInt() accessor not found")
 		}
 	})
 }
