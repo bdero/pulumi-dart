@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"sort"
-	"strings"
 
 	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
 )
@@ -20,7 +19,7 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 	buf.WriteString(fmt.Sprintf("// Generated resource class for %s.\n", resource.Token))
 	buf.WriteString("//\n")
 	if resource.Comment != "" {
-		for _, line := range strings.Split(resource.Comment, "\n") {
+		for _, line := range sanitizeCommentLines(resource.Comment) {
 			buf.WriteString(fmt.Sprintf("// %s\n", line))
 		}
 	}
@@ -58,7 +57,7 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 	// Generate output properties
 	for _, prop := range resource.Properties {
 		if prop.Comment != "" {
-			buf.WriteString(fmt.Sprintf("  /// %s\n", strings.ReplaceAll(prop.Comment, "\n", "\n  /// ")))
+			buf.WriteString(fmt.Sprintf("  /// %s\n", formatPropertyComment(prop.Comment)))
 		}
 		if prop.DeprecationMessage != "" {
 			buf.WriteString(fmt.Sprintf("  @Deprecated('%s')\n", escapeDartString(prop.DeprecationMessage)))
@@ -129,7 +128,7 @@ func generateResource(pkg *schema.Package, resource *schema.Resource) ([]byte, e
 	// Generate property fields
 	for _, prop := range resource.InputProperties {
 		if prop.Comment != "" {
-			buf.WriteString(fmt.Sprintf("  /// %s\n", strings.ReplaceAll(prop.Comment, "\n", "\n  /// ")))
+			buf.WriteString(fmt.Sprintf("  /// %s\n", formatPropertyComment(prop.Comment)))
 		}
 		if prop.DeprecationMessage != "" {
 			buf.WriteString(fmt.Sprintf("  @Deprecated('%s')\n", escapeDartString(prop.DeprecationMessage)))

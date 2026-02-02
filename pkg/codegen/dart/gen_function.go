@@ -3,7 +3,6 @@ package dart
 import (
 	"bytes"
 	"fmt"
-	"strings"
 
 	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
 )
@@ -20,7 +19,7 @@ func generateFunction(pkg *schema.Package, function *schema.Function) ([]byte, e
 	buf.WriteString(fmt.Sprintf("/// Generated function for %s.\n", function.Token))
 	buf.WriteString("///\n")
 	if function.Comment != "" {
-		for _, line := range strings.Split(function.Comment, "\n") {
+		for _, line := range sanitizeCommentLines(function.Comment) {
 			buf.WriteString(fmt.Sprintf("/// %s\n", line))
 		}
 	}
@@ -54,7 +53,7 @@ func generateFunction(pkg *schema.Package, function *schema.Function) ([]byte, e
 	hasOutputs := function.ReturnType != nil
 
 	if function.Comment != "" {
-		for _, line := range strings.Split(function.Comment, "\n") {
+		for _, line := range sanitizeCommentLines(function.Comment) {
 			buf.WriteString(fmt.Sprintf("/// %s\n", line))
 		}
 	}
@@ -148,7 +147,7 @@ func generateFunctionArgs(function *schema.Function, className string) ([]byte, 
 		// Generate property fields
 		for _, prop := range function.Inputs.Properties {
 			if prop.Comment != "" {
-				buf.WriteString(fmt.Sprintf("  /// %s\n", strings.ReplaceAll(prop.Comment, "\n", "\n  /// ")))
+				buf.WriteString(fmt.Sprintf("  /// %s\n", formatPropertyComment(prop.Comment)))
 			}
 			dartType := typeToDart(prop.Type, true)
 			if !prop.IsRequired() {
@@ -221,7 +220,7 @@ func generateFunctionResult(function *schema.Function, className string) ([]byte
 		// Generate property fields
 		for _, prop := range props {
 			if prop.Comment != "" {
-				buf.WriteString(fmt.Sprintf("  /// %s\n", strings.ReplaceAll(prop.Comment, "\n", "\n  /// ")))
+				buf.WriteString(fmt.Sprintf("  /// %s\n", formatPropertyComment(prop.Comment)))
 			}
 			dartType := typeToDart(prop.Type, true)
 			if !prop.IsRequired() {

@@ -81,8 +81,8 @@ func TestGenerateUnionType(t *testing.T) {
 
 		result := string(content)
 
-		// Check object type variant
-		if !strings.Contains(result, "factory StringOrMyObject.myobject(IndexMyObject value) = StringOrMyObjectMyObject;") {
+		// Check object type variant (myObject preserves internal casing)
+		if !strings.Contains(result, "factory StringOrMyObject.myObject(IndexMyObject value) = StringOrMyObjectMyObject;") {
 			t.Error("Expected object type factory constructor not found")
 		}
 

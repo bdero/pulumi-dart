@@ -40,7 +40,7 @@ func TestToCamelCase(t *testing.T) {
 		{"hello_world", "helloWorld"},
 		{"hello-world", "helloWorld"},
 		{"hello world", "helloWorld"},
-		{"HelloWorld", "helloworld"},          // PascalCase gets lowercased first char
+		{"HelloWorld", "helloWorld"},           // PascalCase gets first char lowercased, rest preserved
 		{"hello", "hello"},                     // Single lowercase word preserved
 		{"helloWorld", "helloWorld"},           // Already camelCase - preserved
 		{"getAvailabilityZones", "getAvailabilityZones"}, // Already camelCase - preserved
@@ -341,6 +341,9 @@ func TestToEnumCaseName(t *testing.T) {
 		{"default", "defaultValue"},
 		{"123", "v123"},
 		{"", "unknown"},
+		{"GroupMinSize", "groupMinSize"},         // PascalCase enum value
+		{"GroupMaxSize", "groupMaxSize"},         // PascalCase enum value
+		{"WarmPoolDesiredCapacity", "warmPoolDesiredCapacity"}, // PascalCase enum value
 	}
 
 	for _, tt := range tests {

@@ -3,7 +3,6 @@ package dart
 import (
 	"bytes"
 	"fmt"
-	"strings"
 
 	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
 )
@@ -18,7 +17,7 @@ func generateType(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, e
 	buf.WriteString(fmt.Sprintf("/// Generated type class for %s.\n", objectType.Token))
 	buf.WriteString("///\n")
 	if objectType.Comment != "" {
-		for _, line := range strings.Split(objectType.Comment, "\n") {
+		for _, line := range sanitizeCommentLines(objectType.Comment) {
 			buf.WriteString(fmt.Sprintf("/// %s\n", line))
 		}
 	}
@@ -52,7 +51,7 @@ func generateType(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, e
 	// Generate property fields
 	for _, prop := range objectType.Properties {
 		if prop.Comment != "" {
-			buf.WriteString(fmt.Sprintf("  /// %s\n", strings.ReplaceAll(prop.Comment, "\n", "\n  /// ")))
+			buf.WriteString(fmt.Sprintf("  /// %s\n", formatPropertyComment(prop.Comment)))
 		}
 		if prop.DeprecationMessage != "" {
 			buf.WriteString(fmt.Sprintf("  @Deprecated('%s')\n", escapeDartString(prop.DeprecationMessage)))
@@ -147,7 +146,7 @@ func generateTypeArgs(pkg *schema.Package, objectType *schema.ObjectType) ([]byt
 	// Generate property fields with Input<T> wrapping
 	for _, prop := range objectType.Properties {
 		if prop.Comment != "" {
-			buf.WriteString(fmt.Sprintf("  /// %s\n", strings.ReplaceAll(prop.Comment, "\n", "\n  /// ")))
+			buf.WriteString(fmt.Sprintf("  /// %s\n", formatPropertyComment(prop.Comment)))
 		}
 		dartType := typeToDart(prop.Type, true)
 		if !prop.IsRequired() {

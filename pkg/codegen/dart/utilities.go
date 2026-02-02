@@ -139,16 +139,30 @@ func ToSnakeCase(s string) string {
 // it is assumed to be already in camelCase and is returned as-is (preserving
 // the casing of subsequent characters).
 func toCamelCase(s string) string {
+	if len(s) == 0 {
+		return ""
+	}
+
 	// Split on common separators
 	parts := regexp.MustCompile(`[-_\s]+`).Split(s, -1)
 	if len(parts) == 0 {
 		return ""
 	}
 
-	// If there's only one part and it already starts with lowercase,
-	// assume it's already camelCase and preserve it
-	if len(parts) == 1 && len(s) > 0 && unicode.IsLower(rune(s[0])) {
-		name := s
+	// If there's only one part with no separators
+	if len(parts) == 1 {
+		// Check if it's all uppercase - convert to all lowercase
+		if strings.ToUpper(s) == s {
+			name := strings.ToLower(s)
+			if dartReservedWords[name] {
+				return name + "_"
+			}
+			return name
+		}
+		// Otherwise just lowercase the first letter to preserve internal casing
+		// This handles "GroupMinSize" -> "groupMinSize" and preserves
+		// already camelCase input like "getAvailabilityZones"
+		name := strings.ToLower(string(s[0])) + s[1:]
 		// Handle reserved words
 		if dartReservedWords[name] {
 			return name + "_"
@@ -476,6 +490,26 @@ func escapeDartString(s string) string {
 	s = strings.ReplaceAll(s, "\t", "\\t")
 	s = strings.ReplaceAll(s, "$", "\\$")
 	return s
+}
+
+// sanitizeCommentLines splits a comment string into lines suitable for Dart // comments.
+// It handles both \n and \r\n line endings, and removes standalone \r characters.
+func sanitizeCommentLines(comment string) []string {
+	// Normalize line endings: replace \r\n with \n, then remove any standalone \r
+	comment = strings.ReplaceAll(comment, "\r\n", "\n")
+	comment = strings.ReplaceAll(comment, "\r", "\n")
+	return strings.Split(comment, "\n")
+}
+
+// formatPropertyComment formats a property comment for indented Dart /// comments.
+// It handles line breaks properly, replacing \r\n, \r, and \n with the proper
+// continuation format for indented doc comments.
+func formatPropertyComment(comment string) string {
+	// Normalize line endings
+	comment = strings.ReplaceAll(comment, "\r\n", "\n")
+	comment = strings.ReplaceAll(comment, "\r", "\n")
+	// Replace newlines with proper continuation
+	return strings.ReplaceAll(comment, "\n", "\n  /// ")
 }
 
 // makeValidIdentifier ensures a string is a valid Dart identifier.

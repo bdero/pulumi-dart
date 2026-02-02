@@ -18,7 +18,7 @@ func generateEnum(pkg *schema.Package, enumType *schema.EnumType) ([]byte, error
 	buf.WriteString(fmt.Sprintf("/// Generated enum type for %s.\n", enumType.Token))
 	buf.WriteString("///\n")
 	if enumType.Comment != "" {
-		for _, line := range strings.Split(enumType.Comment, "\n") {
+		for _, line := range sanitizeCommentLines(enumType.Comment) {
 			buf.WriteString(fmt.Sprintf("/// %s\n", line))
 		}
 	}
@@ -40,11 +40,14 @@ func generateEnum(pkg *schema.Package, enumType *schema.EnumType) ([]byte, error
 
 	buf.WriteString(fmt.Sprintf("enum %s {\n", enumName))
 
+	// Track used case names to avoid duplicates
+	usedNames := make(map[string]int)
+
 	// Generate enum values
 	for i, value := range enumType.Elements {
 		// Generate documentation comment
 		if value.Comment != "" {
-			buf.WriteString(fmt.Sprintf("  /// %s\n", strings.ReplaceAll(value.Comment, "\n", "\n  /// ")))
+			buf.WriteString(fmt.Sprintf("  /// %s\n", formatPropertyComment(value.Comment)))
 		}
 
 		// Deprecation annotation
@@ -53,7 +56,25 @@ func generateEnum(pkg *schema.Package, enumType *schema.EnumType) ([]byte, error
 		}
 
 		// Generate the enum case name
-		caseName := toEnumCaseName(value.Name)
+		// Use Name if provided, otherwise derive from Value
+		enumValueName := value.Name
+		if enumValueName == "" {
+			// Fall back to using the value itself as the name
+			if strVal, ok := value.Value.(string); ok {
+				enumValueName = strVal
+			} else {
+				enumValueName = fmt.Sprintf("%v", value.Value)
+			}
+		}
+		caseName := toEnumCaseName(enumValueName)
+
+		// Handle duplicate names by appending a numeric suffix
+		if count, exists := usedNames[caseName]; exists {
+			usedNames[caseName] = count + 1
+			caseName = fmt.Sprintf("%s%d", caseName, count+1)
+		} else {
+			usedNames[caseName] = 1
+		}
 
 		// Format the value based on type
 		var valueStr string
