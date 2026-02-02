@@ -327,9 +327,11 @@ void main() {
         print('Preview exit code: ${result.exitCode}');
 
         // Verify the output mentions the resource - this is the key check
-        // Note: exit code may be non-zero due to plugin lifecycle issues on Windows
-        // even when the preview completes successfully
         final stdout = result.stdout as String;
+
+        // With graceful shutdown implemented, exit code should now be 0
+        expect(result.exitCode, equals(0),
+            reason: 'Preview should exit with code 0. stderr: ${result.stderr}');
         expect(stdout, contains('random:index'),
             reason: 'Expected random provider resource in preview output.\nstdout: $stdout\nstderr: ${result.stderr}');
         expect(stdout, contains('e2e-test-string'),
@@ -395,8 +397,11 @@ void main() {
         );
 
         // Verify the output shows the resource was created
-        // Note: exit code may be non-zero due to plugin lifecycle issues on Windows
         final stdout = result.stdout as String;
+
+        // With graceful shutdown implemented, exit code should now be 0
+        expect(result.exitCode, equals(0),
+            reason: 'pulumi up should exit with code 0. stderr: ${result.stderr}');
         expect(stdout, contains('random:index'),
             reason: 'Expected random provider resource in up output.\nstdout: $stdout\nstderr: ${result.stderr}');
         expect(stdout, contains('e2e-test-string'),
@@ -459,8 +464,10 @@ void main() {
           workingDir: projectDir,
         );
 
-        // Verify the Stack + resource was created (ignore exit code)
+        // Verify the Stack + resource was created
         var stdout = result.stdout as String;
+        expect(result.exitCode, equals(0),
+            reason: 'pulumi up should exit with code 0. stderr: ${result.stderr}');
         expect(stdout, contains('2 created'),
             reason: 'pulumi up failed to create resources: ${result.stderr}');
 
@@ -472,6 +479,8 @@ void main() {
 
         // Verify the Stack + resource was destroyed
         stdout = result.stdout as String;
+        expect(result.exitCode, equals(0),
+            reason: 'pulumi destroy should exit with code 0. stderr: ${result.stderr}');
         expect(stdout, contains('2 deleted'),
             reason: 'pulumi destroy failed to delete resources: ${result.stderr}');
 

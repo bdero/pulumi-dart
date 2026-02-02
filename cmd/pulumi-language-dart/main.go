@@ -12,6 +12,8 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	"os"
+	"os/signal"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/logging"
@@ -53,8 +55,25 @@ func run(ctx context.Context) error {
 	// Create the language host with the engine address
 	host := NewDartLanguageHostWithEngine(engineAddress)
 
+	// Set up graceful shutdown on interrupt signal.
+	// This follows the same pattern as the official Pulumi Go language host.
+	// When the Pulumi CLI sends an interrupt (SIGINT on Unix, CTRL_BREAK_EVENT on Windows),
+	// we gracefully stop the gRPC server instead of letting it be killed abruptly.
+	ctx, cancel := signal.NotifyContext(ctx, os.Interrupt)
+	defer cancel()
+
+	// Map the context Done channel to the rpcutil boolean cancel channel.
+	// When an interrupt is received, the context is cancelled, which triggers
+	// closing of cancelChannel, which in turn tells rpcutil.Serve to gracefully stop.
+	cancelChannel := make(chan bool)
+	go func() {
+		<-ctx.Done()
+		cancel() // Deregister handler so we don't catch another interrupt
+		close(cancelChannel)
+	}()
+
 	// Create a gRPC server
-	port, done, err := rpcutil.Serve(0, nil, []func(*grpc.Server) error{
+	port, done, err := rpcutil.Serve(0, cancelChannel, []func(*grpc.Server) error{
 		func(srv *grpc.Server) error {
 			pulumirpc.RegisterLanguageRuntimeServer(srv, host)
 			return nil
