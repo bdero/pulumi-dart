@@ -172,10 +172,11 @@ func generateFunctionArgs(function *schema.Function, className string) ([]byte, 
 		buf.WriteString("    return {\n")
 		for _, prop := range function.Inputs.Properties {
 			propName := toCamelCase(prop.Name)
+			valueExpr := generateToPropertyMapValue(prop.Type, propName)
 			if prop.IsRequired() {
-				buf.WriteString(fmt.Sprintf("      '%s': %s,\n", prop.Name, propName))
+				buf.WriteString(fmt.Sprintf("      '%s': %s,\n", prop.Name, valueExpr))
 			} else {
-				buf.WriteString(fmt.Sprintf("      if (%s != null) '%s': %s,\n", propName, prop.Name, propName))
+				buf.WriteString(fmt.Sprintf("      if (%s != null) '%s': %s,\n", propName, prop.Name, valueExpr))
 			}
 		}
 		buf.WriteString("    };\n")
@@ -243,14 +244,12 @@ func generateFunctionResult(function *schema.Function, className string) ([]byte
 		buf.WriteString(fmt.Sprintf("  factory %s.fromPropertyMap(Map<String, dynamic> properties) {\n", className))
 		buf.WriteString(fmt.Sprintf("    return %s(\n", className))
 		for _, prop := range requiredProps {
-			dartType := typeToDart(prop.Type, true)
-			buf.WriteString(fmt.Sprintf("      %s: properties['%s'] as %s,\n",
-				toCamelCase(prop.Name), prop.Name, dartType))
+			expr := generatePropertyMapExtraction(prop.Type, fmt.Sprintf("properties['%s']", prop.Name), false)
+			buf.WriteString(fmt.Sprintf("      %s: %s,\n", toCamelCase(prop.Name), expr))
 		}
 		for _, prop := range optionalProps {
-			dartType := typeToDart(prop.Type, true)
-			buf.WriteString(fmt.Sprintf("      %s: properties['%s'] as %s?,\n",
-				toCamelCase(prop.Name), prop.Name, dartType))
+			expr := generatePropertyMapExtraction(prop.Type, fmt.Sprintf("properties['%s']", prop.Name), true)
+			buf.WriteString(fmt.Sprintf("      %s: %s,\n", toCamelCase(prop.Name), expr))
 		}
 		buf.WriteString("    );\n")
 		buf.WriteString("  }\n")
