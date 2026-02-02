@@ -5,8 +5,12 @@ import (
 	"fmt"
 	"os/exec"
 
+	"github.com/pulumi/pulumi/sdk/v3/go/common/util/logging"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/util/rpcutil"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	pulumirpc "github.com/pulumi/pulumi/sdk/v3/proto/go"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/protobuf/types/known/emptypb"
 )
 
@@ -96,6 +100,18 @@ func (h *DartLanguageHost) Run(
 		}
 	}
 
+	// Create engine client if debugger attachment is requested
+	var engineClient EngineClient
+	if req.GetAttachDebugger() && h.engineAddress != "" {
+		client, err := connectToEngine(ctx, h.engineAddress)
+		if err != nil {
+			logging.V(5).Infof("Failed to connect to engine for debugging: %v", err)
+			// Continue without debugger attachment
+		} else {
+			engineClient = client
+		}
+	}
+
 	config := ExecutorConfig{
 		Program:        programDir,
 		Pwd:            req.Pwd,
@@ -112,6 +128,9 @@ func (h *DartLanguageHost) Run(
 		ExecutionMode: opts.Mode,
 		BinaryPath:    opts.Binary,
 		EntryPoint:    entryPoint,
+		// Debugger options
+		AttachDebugger: req.GetAttachDebugger(),
+		EngineClient:   engineClient,
 	}
 
 	result, err := h.executor.Run(ctx, config)
@@ -450,4 +469,30 @@ type PluginInfo struct {
 	Kind    workspace.PluginKind
 	Version string
 	Server  string
+}
+
+// engineClientWrapper wraps the pulumirpc.EngineClient to implement our EngineClient interface.
+type engineClientWrapper struct {
+	client pulumirpc.EngineClient
+}
+
+// StartDebugging implements the EngineClient interface.
+func (w *engineClientWrapper) StartDebugging(ctx context.Context, req *pulumirpc.StartDebuggingRequest) error {
+	_, err := w.client.StartDebugging(ctx, req)
+	return err
+}
+
+// connectToEngine creates a gRPC connection to the Pulumi engine.
+func connectToEngine(ctx context.Context, address string) (EngineClient, error) {
+	conn, err := grpc.NewClient(
+		address,
+		grpc.WithTransportCredentials(insecure.NewCredentials()),
+		rpcutil.GrpcChannelOptions(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("failed to connect to engine at %s: %w", address, err)
+	}
+
+	client := pulumirpc.NewEngineClient(conn)
+	return &engineClientWrapper{client: client}, nil
 }

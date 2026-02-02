@@ -52,6 +52,11 @@ type ExecutorConfig struct {
 	// EntryPoint is the entry point file to run (e.g., "bin/main.dart").
 	// If empty, "dart run" uses the default entry point based on the package name.
 	EntryPoint string
+	// AttachDebugger indicates whether to run the program under a debugger.
+	AttachDebugger bool
+	// EngineClient is the gRPC client for communicating with the Pulumi engine.
+	// Required when AttachDebugger is true to notify the engine of the debug session.
+	EngineClient EngineClient
 }
 
 // ExecutorResult contains the result of running a Dart program.
@@ -72,6 +77,11 @@ func (e *DartExecutor) Run(ctx context.Context, config ExecutorConfig) (*Executo
 		if err != nil {
 			return nil, fmt.Errorf("failed to resolve program path: %w", err)
 		}
+	}
+
+	// Handle debug attachment mode
+	if config.AttachDebugger {
+		return e.runWithDebugger(ctx, config, programPath)
 	}
 
 	// Build the command based on execution mode
@@ -118,6 +128,69 @@ func (e *DartExecutor) Run(ctx context.Context, config ExecutorConfig) (*Executo
 
 	// Run the command
 	err := cmd.Run()
+	if err != nil {
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			// Program exited with non-zero status
+			return &ExecutorResult{
+				Error: fmt.Sprintf("program exited with code %d", exitErr.ExitCode()),
+				Bail:  false,
+			}, nil
+		}
+		return nil, fmt.Errorf("failed to run Dart program: %w", err)
+	}
+
+	return &ExecutorResult{}, nil
+}
+
+// runWithDebugger runs the Dart program with debugger attachment enabled.
+// This starts the Dart VM with the VM service enabled and notifies the engine.
+func (e *DartExecutor) runWithDebugger(ctx context.Context, config ExecutorConfig, programPath string) (*ExecutorResult, error) {
+	dartPath, err := e.findDart()
+	if err != nil {
+		return nil, fmt.Errorf("dart not found in PATH: %w", err)
+	}
+
+	// Create the debug command
+	cmd, dbg, err := debugCommand(ctx, dartPath, programPath, config.EntryPoint, config.Args)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create debug command: %w", err)
+	}
+	defer dbg.Cleanup()
+
+	// Set up environment variables
+	env := e.buildEnvironment(config)
+	cmd.Env = env
+
+	// Direct stdout and stderr to the parent process
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+
+	// Start the command (don't wait for completion yet)
+	if err := cmd.Start(); err != nil {
+		return nil, fmt.Errorf("failed to start Dart program with debugger: %w", err)
+	}
+
+	// Wait for VM service to be available
+	if err := waitForVMServiceByPolling(ctx, dbg.Port); err != nil {
+		// If we can't connect to VM service, kill the process and return error
+		_ = cmd.Process.Kill()
+		return nil, fmt.Errorf("failed to start VM service: %w", err)
+	}
+
+	// Notify the engine about the debugging session
+	if config.EngineClient != nil {
+		// Start debugging notification in a goroutine so we don't block
+		go func() {
+			err := startDebugging(ctx, config.EngineClient, dbg, "Pulumi: Program (Dart)")
+			if err != nil {
+				// Log the error but don't fail the program
+				fmt.Fprintf(os.Stderr, "Warning: failed to notify engine about debugger: %v\n", err)
+			}
+		}()
+	}
+
+	// Wait for the command to finish
+	err = cmd.Wait()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			// Program exited with non-zero status
