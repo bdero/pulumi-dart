@@ -42,12 +42,16 @@ class PulumiContext {
   /// The registered stack URN (populated after stack resource registration).
   String? _stackUrn;
 
+  /// The Engine client for logging (may be null if not connected).
+  final Engine? _engine;
+
   PulumiContext._({
     required this.project,
     required this.stack,
     required this.isDryRun,
     this.organization,
-  });
+    Engine? engine,
+  }) : _engine = engine;
 
   /// Exports a stack output value.
   ///
@@ -85,6 +89,74 @@ class PulumiContext {
   /// Users don't typically need to call this directly.
   void trackResource(Resource resource) {
     _trackedRegistrations.add(resource.registered);
+  }
+
+  /// Logs a debug message to the Pulumi CLI output.
+  ///
+  /// Debug messages are only shown when verbose logging is enabled.
+  /// Falls back to [print] when the Engine is not connected.
+  ///
+  /// ```dart
+  /// await ctx.debug('Computed hash: $hash');
+  /// ```
+  Future<void> debug(String message) async {
+    if (_engine != null) {
+      await _engine.debug(message);
+    } else {
+      print('[DEBUG] $message');
+    }
+  }
+
+  /// Logs an info message to the Pulumi CLI output.
+  ///
+  /// Info messages are shown during normal operation.
+  /// Falls back to [print] when the Engine is not connected.
+  ///
+  /// ```dart
+  /// await ctx.info('Deploying resources...');
+  /// ```
+  Future<void> info(String message) async {
+    if (_engine != null) {
+      await _engine.info(message);
+    } else {
+      print('[INFO] $message');
+    }
+  }
+
+  /// Logs a warning message to the Pulumi CLI output.
+  ///
+  /// Warning messages indicate potential issues that don't prevent the
+  /// operation from completing.
+  /// Falls back to [print] when the Engine is not connected.
+  ///
+  /// ```dart
+  /// await ctx.warning('Deprecated property used');
+  /// ```
+  Future<void> warning(String message) async {
+    if (_engine != null) {
+      await _engine.warning(message);
+    } else {
+      print('[WARNING] $message');
+    }
+  }
+
+  /// Logs an error message to the Pulumi CLI output.
+  ///
+  /// Error messages indicate failures. Note that logging an error does not
+  /// automatically fail the deployment - you should also throw an exception
+  /// if the error should stop execution.
+  /// Falls back to [print] when the Engine is not connected.
+  ///
+  /// ```dart
+  /// await ctx.error('Failed to create resource: $reason');
+  /// throw Exception('Deployment failed');
+  /// ```
+  Future<void> error(String message) async {
+    if (_engine != null) {
+      await _engine.error(message);
+    } else {
+      print('[ERROR] $message');
+    }
   }
 }
 
@@ -221,12 +293,13 @@ class Pulumi {
         engine = Engine.connect(engineAddress);
       }
 
-      // Create context
+      // Create context with engine reference for logging
       final context = PulumiContext._(
         project: project,
         stack: stack,
         isDryRun: isDryRun,
         organization: organization,
+        engine: engine,
       );
 
       // Set as current context

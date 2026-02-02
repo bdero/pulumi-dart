@@ -4,11 +4,13 @@ import 'package:test/test.dart';
 
 import 'package:pulumi/src/input.dart';
 import 'package:pulumi/src/output.dart';
+import 'package:pulumi/src/proto/pulumi/engine.pb.dart';
 import 'package:pulumi/src/pulumi.dart';
 import 'package:pulumi/src/resource.dart';
 import 'package:pulumi/src/runtime/engine.dart';
 import 'package:pulumi/src/runtime/runtime.dart';
 
+import 'mock_engine_service.dart';
 import 'mock_monitor_service.dart';
 
 /// A test custom resource for testing Pulumi.run().
@@ -97,6 +99,118 @@ void main() {
         isDryRun: true,
         organization: 'my-org',
       );
+    });
+
+    group('logging', () {
+      late Server engineServer;
+      late MockEngineService mockEngineService;
+      late int enginePort;
+
+      setUp(() async {
+        final result = await startMockEngineServer();
+        mockEngineService = result.$1;
+        enginePort = result.$2;
+        engineServer = result.$3;
+      });
+
+      tearDown(() async {
+        await engineServer.shutdown();
+      });
+
+      test('debug() logs to engine when connected', () async {
+        await Pulumi.runWithOptions(
+          (ctx) async {
+            await ctx.debug('Debug message');
+          },
+          engineAddress: 'localhost:$enginePort',
+          project: 'test-project',
+          stack: 'test-stack',
+        );
+
+        expect(mockEngineService.logRequests, hasLength(1));
+        expect(mockEngineService.logRequests[0].message, equals('Debug message'));
+        expect(mockEngineService.logRequests[0].severity, equals(LogSeverity.DEBUG));
+      });
+
+      test('info() logs to engine when connected', () async {
+        await Pulumi.runWithOptions(
+          (ctx) async {
+            await ctx.info('Info message');
+          },
+          engineAddress: 'localhost:$enginePort',
+          project: 'test-project',
+          stack: 'test-stack',
+        );
+
+        expect(mockEngineService.logRequests, hasLength(1));
+        expect(mockEngineService.logRequests[0].message, equals('Info message'));
+        expect(mockEngineService.logRequests[0].severity, equals(LogSeverity.INFO));
+      });
+
+      test('warning() logs to engine when connected', () async {
+        await Pulumi.runWithOptions(
+          (ctx) async {
+            await ctx.warning('Warning message');
+          },
+          engineAddress: 'localhost:$enginePort',
+          project: 'test-project',
+          stack: 'test-stack',
+        );
+
+        expect(mockEngineService.logRequests, hasLength(1));
+        expect(mockEngineService.logRequests[0].message, equals('Warning message'));
+        expect(mockEngineService.logRequests[0].severity, equals(LogSeverity.WARNING));
+      });
+
+      test('error() logs to engine when connected', () async {
+        await Pulumi.runWithOptions(
+          (ctx) async {
+            await ctx.error('Error message');
+          },
+          engineAddress: 'localhost:$enginePort',
+          project: 'test-project',
+          stack: 'test-stack',
+        );
+
+        expect(mockEngineService.logRequests, hasLength(1));
+        expect(mockEngineService.logRequests[0].message, equals('Error message'));
+        expect(mockEngineService.logRequests[0].severity, equals(LogSeverity.ERROR));
+      });
+
+      test('multiple log calls are captured', () async {
+        await Pulumi.runWithOptions(
+          (ctx) async {
+            await ctx.debug('Debug 1');
+            await ctx.info('Info 1');
+            await ctx.warning('Warning 1');
+            await ctx.error('Error 1');
+          },
+          engineAddress: 'localhost:$enginePort',
+          project: 'test-project',
+          stack: 'test-stack',
+        );
+
+        expect(mockEngineService.logRequests, hasLength(4));
+        expect(mockEngineService.logRequests[0].severity, equals(LogSeverity.DEBUG));
+        expect(mockEngineService.logRequests[1].severity, equals(LogSeverity.INFO));
+        expect(mockEngineService.logRequests[2].severity, equals(LogSeverity.WARNING));
+        expect(mockEngineService.logRequests[3].severity, equals(LogSeverity.ERROR));
+      });
+
+      test('logging falls back to print when engine not connected', () async {
+        // Just verify it doesn't throw when there's no engine
+        await Pulumi.runWithOptions(
+          (ctx) async {
+            await ctx.debug('Debug without engine');
+            await ctx.info('Info without engine');
+            await ctx.warning('Warning without engine');
+            await ctx.error('Error without engine');
+          },
+          project: 'test-project',
+          stack: 'test-stack',
+        );
+        // If we get here without throwing, the fallback worked
+      });
     });
   });
 
