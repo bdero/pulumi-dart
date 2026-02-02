@@ -1,8 +1,10 @@
 import 'package:test/test.dart';
 
+import 'package:pulumi/src/runtime/engine.dart';
 import 'package:pulumi/src/runtime/runtime.dart';
 import 'package:pulumi/src/runtime/monitor.dart';
 
+import 'mock_engine_service.dart';
 import 'mock_monitor_service.dart';
 
 void main() {
@@ -34,6 +36,43 @@ void main() {
       expect(Runtime.instance.stack, equals('test-stack'));
       expect(Runtime.instance.isDryRun, isFalse);
       expect(Runtime.instance.organization, isNull);
+      expect(Runtime.instance.engine, isNull);
+
+      await Runtime.instance.monitor.terminate();
+    });
+
+    test('initialize with engineAddress creates engine client', () async {
+      final (_, monitorPort) = await startMockServer();
+      final (_, enginePort, engineServer) = await startMockEngineServer();
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$monitorPort',
+        engineAddress: 'localhost:$enginePort',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      expect(Runtime.instance.engine, isNotNull);
+
+      // Verify engine works
+      await Runtime.instance.engine!.info('test message');
+
+      await Runtime.instance.monitor.terminate();
+      await Runtime.instance.engine!.terminate();
+      await engineServer.shutdown();
+    });
+
+    test('initialize with empty engineAddress does not create engine', () async {
+      final (_, port) = await startMockServer();
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        engineAddress: '',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      expect(Runtime.instance.engine, isNull);
 
       await Runtime.instance.monitor.terminate();
     });
@@ -90,8 +129,31 @@ void main() {
 
       expect(Runtime.instance.monitor, same(monitor));
       expect(Runtime.instance.project, equals('custom-project'));
+      expect(Runtime.instance.engine, isNull);
 
       await monitor.terminate();
+    });
+
+    test('initializeWithMonitor uses provided engine', () async {
+      final (_, monitorPort) = await startMockServer();
+      final (_, enginePort, engineServer) = await startMockEngineServer();
+
+      final monitor = ResourceMonitor.connect('localhost:$monitorPort');
+      final engine = Engine.connect('localhost:$enginePort');
+
+      Runtime.initializeWithMonitor(
+        monitor: monitor,
+        engine: engine,
+        project: 'custom-project',
+        stack: 'custom-stack',
+      );
+
+      expect(Runtime.instance.monitor, same(monitor));
+      expect(Runtime.instance.engine, same(engine));
+
+      await monitor.terminate();
+      await engine.terminate();
+      await engineServer.shutdown();
     });
 
     test('reset clears the instance', () async {

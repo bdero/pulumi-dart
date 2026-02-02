@@ -1,3 +1,4 @@
+import 'engine.dart';
 import 'monitor.dart';
 
 /// The singleton runtime context for Pulumi programs.
@@ -12,16 +13,23 @@ import 'monitor.dart';
 /// // Initialize at program startup (typically in Pulumi.run)
 /// await Runtime.initialize(
 ///   monitorAddress: 'localhost:50051',
+///   engineAddress: 'localhost:50052',
 ///   project: 'my-project',
 ///   stack: 'dev',
 /// );
 ///
 /// // Access from anywhere in the program
 /// final monitor = Runtime.instance.monitor;
+/// final engine = Runtime.instance.engine; // May be null
 /// ```
 class Runtime {
   /// The ResourceMonitor gRPC client.
   final ResourceMonitor monitor;
+
+  /// The Engine gRPC client for logging and root resource management.
+  ///
+  /// This is optional and may be null if no engine address was provided.
+  final Engine? engine;
 
   /// The current project name.
   final String project;
@@ -41,6 +49,7 @@ class Runtime {
     required this.stack,
     required this.isDryRun,
     this.organization,
+    this.engine,
   });
 
   static Runtime? _instance;
@@ -63,10 +72,12 @@ class Runtime {
   /// Initializes the Runtime singleton.
   ///
   /// This must be called before any resources are created. It connects to
-  /// the Pulumi engine's ResourceMonitor and sets up the runtime context.
+  /// the Pulumi engine's ResourceMonitor and optionally the Engine service
+  /// for logging.
   ///
   /// Parameters:
   /// - [monitorAddress]: The address of the ResourceMonitor gRPC service
+  /// - [engineAddress]: The address of the Engine gRPC service (optional)
   /// - [project]: The current project name
   /// - [stack]: The current stack name
   /// - [isDryRun]: Whether this is a preview (dry run) operation
@@ -75,6 +86,7 @@ class Runtime {
   /// Throws [StateError] if the Runtime has already been initialized.
   static Future<Runtime> initialize({
     required String monitorAddress,
+    String? engineAddress,
     required String project,
     required String stack,
     bool isDryRun = false,
@@ -89,12 +101,19 @@ class Runtime {
 
     final monitor = ResourceMonitor.connect(monitorAddress);
 
+    // Connect to engine if address is provided
+    Engine? engine;
+    if (engineAddress != null && engineAddress.isNotEmpty) {
+      engine = Engine.connect(engineAddress);
+    }
+
     _instance = Runtime._(
       monitor: monitor,
       project: project,
       stack: stack,
       isDryRun: isDryRun,
       organization: organization,
+      engine: engine,
     );
 
     return _instance!;
@@ -103,8 +122,17 @@ class Runtime {
   /// Initializes the Runtime with an existing ResourceMonitor.
   ///
   /// This is useful for testing or when you want to reuse a connection.
+  ///
+  /// Parameters:
+  /// - [monitor]: An existing ResourceMonitor client
+  /// - [engine]: An existing Engine client (optional)
+  /// - [project]: The current project name
+  /// - [stack]: The current stack name
+  /// - [isDryRun]: Whether this is a preview (dry run) operation
+  /// - [organization]: The organization name (optional)
   static Runtime initializeWithMonitor({
     required ResourceMonitor monitor,
+    Engine? engine,
     required String project,
     required String stack,
     bool isDryRun = false,
@@ -123,6 +151,7 @@ class Runtime {
       stack: stack,
       isDryRun: isDryRun,
       organization: organization,
+      engine: engine,
     );
 
     return _instance!;
@@ -130,11 +159,18 @@ class Runtime {
 
   /// Shuts down the Runtime and releases resources.
   ///
-  /// This signals completion to the engine and closes gRPC connections.
+  /// This signals completion to the engine and closes gRPC connections
+  /// for both the ResourceMonitor and Engine (if connected).
   /// After calling this, the Runtime instance is no longer valid.
   Future<void> shutdown() async {
     await monitor.signalAndWaitForShutdown();
     await monitor.shutdown();
+
+    // Shutdown engine if connected
+    if (engine != null) {
+      await engine!.shutdown();
+    }
+
     _instance = null;
   }
 

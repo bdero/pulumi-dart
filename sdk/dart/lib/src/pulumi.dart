@@ -272,14 +272,15 @@ class Pulumi {
     bool isDryRun = false,
     String? organization,
   }) async {
-    Engine? engine;
     bool runtimeInitialized = false;
+    Engine? standaloneEngine;
 
     try {
       // Initialize runtime if monitor address is provided
       if (monitorAddress != null && monitorAddress.isNotEmpty) {
         await Runtime.initialize(
           monitorAddress: monitorAddress,
+          engineAddress: engineAddress,
           project: project,
           stack: stack,
           isDryRun: isDryRun,
@@ -288,9 +289,15 @@ class Pulumi {
         runtimeInitialized = true;
       }
 
-      // Connect to engine if address is provided
-      if (engineAddress != null && engineAddress.isNotEmpty) {
-        engine = Engine.connect(engineAddress);
+      // Get engine from Runtime if initialized, otherwise create standalone
+      // if engine address was provided
+      Engine? engine;
+      if (runtimeInitialized) {
+        engine = Runtime.instance.engine;
+      } else if (engineAddress != null && engineAddress.isNotEmpty) {
+        // Create standalone engine for logging-only mode
+        standaloneEngine = Engine.connect(engineAddress);
+        engine = standaloneEngine;
       }
 
       // Create context with engine reference for logging
@@ -349,6 +356,7 @@ class Pulumi {
       _currentContext = null;
 
       // Shutdown runtime if we initialized it
+      // (This also shuts down the engine if connected)
       if (runtimeInitialized) {
         try {
           await Runtime.instance.shutdown();
@@ -358,10 +366,10 @@ class Pulumi {
         }
       }
 
-      // Shutdown engine client
-      if (engine != null) {
+      // Shutdown standalone engine if created
+      if (standaloneEngine != null) {
         try {
-          await engine.shutdown();
+          await standaloneEngine.shutdown();
         } catch (_) {
           // Ignore shutdown errors
         }
