@@ -183,6 +183,132 @@ func TestGenerateType(t *testing.T) {
 		if !strings.Contains(result, "import '../types/index_nested_type.dart';") {
 			t.Error("Expected import for nested type not found")
 		}
+
+		// Check fromPropertyMap uses nested type's fromPropertyMap
+		if !strings.Contains(result, "IndexNestedType.fromPropertyMap(properties['nested'] as Map<String, dynamic>)") {
+			t.Error("Expected fromPropertyMap to call nested type's fromPropertyMap")
+		}
+
+		// Check toPropertyMap calls nested type's toPropertyMap
+		if !strings.Contains(result, "'nested': nested.toPropertyMap()") {
+			t.Error("Expected toPropertyMap to call nested type's toPropertyMap")
+		}
+	})
+
+	t.Run("type with optional nested object", func(t *testing.T) {
+		nestedType := &schema.ObjectType{
+			Token: "test:index:OptionalNested",
+		}
+
+		objectType := &schema.ObjectType{
+			Token: "test:index:ParentWithOptional",
+			Properties: []*schema.Property{
+				{Name: "maybe_nested", Type: &schema.OptionalType{ElementType: nestedType}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check optional nested type with null check in fromPropertyMap
+		if !strings.Contains(result, "properties['maybe_nested'] != null ? IndexOptionalNested.fromPropertyMap(properties['maybe_nested'] as Map<String, dynamic>) : null") {
+			t.Error("Expected fromPropertyMap to handle optional nested type with null check")
+		}
+	})
+
+	t.Run("type with array of nested objects", func(t *testing.T) {
+		nestedType := &schema.ObjectType{
+			Token: "test:index:ArrayItem",
+		}
+
+		objectType := &schema.ObjectType{
+			Token: "test:index:ParentWithArray",
+			Properties: []*schema.Property{
+				{Name: "items", Type: &schema.ArrayType{ElementType: nestedType}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check fromPropertyMap handles array of nested types
+		if !strings.Contains(result, "IndexArrayItem.fromPropertyMap(e as Map<String, dynamic>)") {
+			t.Error("Expected fromPropertyMap to deserialize array elements using fromPropertyMap")
+		}
+
+		// Check toPropertyMap handles array of nested types
+		if !strings.Contains(result, "items.map((e) => e.toPropertyMap()).toList()") {
+			t.Error("Expected toPropertyMap to serialize array elements using toPropertyMap")
+		}
+	})
+
+	t.Run("type with map of nested objects", func(t *testing.T) {
+		nestedType := &schema.ObjectType{
+			Token: "test:index:MapValue",
+		}
+
+		objectType := &schema.ObjectType{
+			Token: "test:index:ParentWithMap",
+			Properties: []*schema.Property{
+				{Name: "values", Type: &schema.MapType{ElementType: nestedType}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check fromPropertyMap handles map of nested types
+		if !strings.Contains(result, "IndexMapValue.fromPropertyMap(v as Map<String, dynamic>)") {
+			t.Error("Expected fromPropertyMap to deserialize map values using fromPropertyMap")
+		}
+
+		// Check toPropertyMap handles map of nested types
+		if !strings.Contains(result, "values.map((k, v) => MapEntry(k, v.toPropertyMap()))") {
+			t.Error("Expected toPropertyMap to serialize map values using toPropertyMap")
+		}
+	})
+
+	t.Run("type with enum property", func(t *testing.T) {
+		enumType := &schema.EnumType{
+			Token:       "test:index:Status",
+			ElementType: schema.StringType,
+		}
+
+		objectType := &schema.ObjectType{
+			Token: "test:index:TypeWithEnum",
+			Properties: []*schema.Property{
+				{Name: "status", Type: enumType},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check fromPropertyMap uses enum's fromValue
+		if !strings.Contains(result, "IndexStatus.fromValue(properties['status'])") {
+			t.Error("Expected fromPropertyMap to use enum's fromValue")
+		}
+
+		// Check toPropertyMap uses enum's value
+		if !strings.Contains(result, "'status': status.value") {
+			t.Error("Expected toPropertyMap to use enum's value")
+		}
 	})
 }
 

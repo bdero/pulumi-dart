@@ -84,14 +84,12 @@ func generateType(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, e
 	buf.WriteString(fmt.Sprintf("  factory %s.fromPropertyMap(Map<String, dynamic> properties) {\n", className))
 	buf.WriteString(fmt.Sprintf("    return %s(\n", className))
 	for _, prop := range requiredProps {
-		dartType := typeToDart(prop.Type, true)
-		buf.WriteString(fmt.Sprintf("      %s: properties['%s'] as %s,\n",
-			toCamelCase(prop.Name), prop.Name, dartType))
+		expr := generatePropertyMapExtraction(prop.Type, fmt.Sprintf("properties['%s']", prop.Name), false)
+		buf.WriteString(fmt.Sprintf("      %s: %s,\n", toCamelCase(prop.Name), expr))
 	}
 	for _, prop := range optionalProps {
-		dartType := typeToDart(prop.Type, true)
-		buf.WriteString(fmt.Sprintf("      %s: properties['%s'] as %s?,\n",
-			toCamelCase(prop.Name), prop.Name, dartType))
+		expr := generatePropertyMapExtraction(prop.Type, fmt.Sprintf("properties['%s']", prop.Name), true)
+		buf.WriteString(fmt.Sprintf("      %s: %s,\n", toCamelCase(prop.Name), expr))
 	}
 	buf.WriteString("    );\n")
 	buf.WriteString("  }\n\n")
@@ -102,10 +100,11 @@ func generateType(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, e
 	buf.WriteString("    return {\n")
 	for _, prop := range objectType.Properties {
 		propName := toCamelCase(prop.Name)
+		valueExpr := generateToPropertyMapValue(prop.Type, propName)
 		if prop.IsRequired() {
-			buf.WriteString(fmt.Sprintf("      '%s': %s,\n", prop.Name, propName))
+			buf.WriteString(fmt.Sprintf("      '%s': %s,\n", prop.Name, valueExpr))
 		} else {
-			buf.WriteString(fmt.Sprintf("      if (%s != null) '%s': %s,\n", propName, prop.Name, propName))
+			buf.WriteString(fmt.Sprintf("      if (%s != null) '%s': %s,\n", propName, prop.Name, valueExpr))
 		}
 	}
 	buf.WriteString("    };\n")
@@ -187,4 +186,145 @@ func collectObjectTypeImports(pkg *schema.Package, props []*schema.Property) []s
 	}
 
 	return dedupeStrings(imports)
+}
+
+// generatePropertyMapExtraction generates a Dart expression to extract a value from a property map.
+// This handles nested ObjectTypes by calling their fromPropertyMap factory constructor.
+func generatePropertyMapExtraction(t schema.Type, valueExpr string, isOptional bool) string {
+	switch tt := t.(type) {
+	case *schema.OptionalType:
+		return generatePropertyMapExtraction(tt.ElementType, valueExpr, true)
+
+	case *schema.ArrayType:
+		dartType := typeToDart(tt.ElementType, true)
+		elemExtract := generatePropertyMapListElementExtraction(tt.ElementType)
+		if isOptional {
+			return fmt.Sprintf("%s != null ? (%s as List).map((e) => %s).toList() : null", valueExpr, valueExpr, elemExtract)
+		}
+		return fmt.Sprintf("(%s as List?)?.map((e) => %s).toList() ?? <%s>[]", valueExpr, elemExtract, dartType)
+
+	case *schema.MapType:
+		dartType := typeToDart(tt.ElementType, true)
+		elemExtract := generatePropertyMapMapValueExtraction(tt.ElementType)
+		if isOptional {
+			return fmt.Sprintf("%s != null ? (%s as Map<String, dynamic>).map((k, v) => MapEntry(k, %s)) : null", valueExpr, valueExpr, elemExtract)
+		}
+		return fmt.Sprintf("(%s as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, %s)) ?? <String, %s>{}", valueExpr, elemExtract, dartType)
+
+	case *schema.ObjectType:
+		className := tokenToQualifiedClassName(tt.Token)
+		if isOptional {
+			return fmt.Sprintf("%s != null ? %s.fromPropertyMap(%s as Map<String, dynamic>) : null", valueExpr, className, valueExpr)
+		}
+		return fmt.Sprintf("%s.fromPropertyMap(%s as Map<String, dynamic>)", className, valueExpr)
+
+	case *schema.EnumType:
+		className := tokenToQualifiedClassName(tt.Token)
+		if isOptional {
+			return fmt.Sprintf("%s != null ? %s.fromValue(%s) : null", valueExpr, className, valueExpr)
+		}
+		return fmt.Sprintf("%s.fromValue(%s)", className, valueExpr)
+
+	default:
+		// Primitive types - just cast
+		dartType := typeToDart(t, true)
+		if isOptional {
+			return fmt.Sprintf("%s as %s?", valueExpr, dartType)
+		}
+		return fmt.Sprintf("%s as %s", valueExpr, dartType)
+	}
+}
+
+// generatePropertyMapListElementExtraction generates code to extract a list element from a property map.
+func generatePropertyMapListElementExtraction(elemType schema.Type) string {
+	switch tt := elemType.(type) {
+	case *schema.ObjectType:
+		className := tokenToQualifiedClassName(tt.Token)
+		return fmt.Sprintf("%s.fromPropertyMap(e as Map<String, dynamic>)", className)
+	case *schema.EnumType:
+		className := tokenToQualifiedClassName(tt.Token)
+		return fmt.Sprintf("%s.fromValue(e)", className)
+	default:
+		dartType := typeToDart(elemType, true)
+		return fmt.Sprintf("e as %s", dartType)
+	}
+}
+
+// generatePropertyMapMapValueExtraction generates code to extract a map value from a property map.
+func generatePropertyMapMapValueExtraction(elemType schema.Type) string {
+	switch tt := elemType.(type) {
+	case *schema.ObjectType:
+		className := tokenToQualifiedClassName(tt.Token)
+		return fmt.Sprintf("%s.fromPropertyMap(v as Map<String, dynamic>)", className)
+	case *schema.EnumType:
+		className := tokenToQualifiedClassName(tt.Token)
+		return fmt.Sprintf("%s.fromValue(v)", className)
+	default:
+		dartType := typeToDart(elemType, true)
+		return fmt.Sprintf("v as %s", dartType)
+	}
+}
+
+// generateToPropertyMapValue generates a Dart expression for serializing a value to a property map.
+// This handles nested ObjectTypes by calling their toPropertyMap method.
+func generateToPropertyMapValue(t schema.Type, valueExpr string) string {
+	switch tt := t.(type) {
+	case *schema.OptionalType:
+		// For optional types, add null-aware call
+		innerExpr := generateToPropertyMapValue(tt.ElementType, valueExpr)
+		// If the inner expression is different from the value (has transformation), add null check
+		if innerExpr != valueExpr {
+			return fmt.Sprintf("%s != null ? %s : null", valueExpr, generateToPropertyMapValue(tt.ElementType, valueExpr+"!"))
+		}
+		return valueExpr
+
+	case *schema.ArrayType:
+		elemTransform := generateToPropertyMapListElement(tt.ElementType)
+		if elemTransform != "e" {
+			return fmt.Sprintf("%s.map((e) => %s).toList()", valueExpr, elemTransform)
+		}
+		return valueExpr
+
+	case *schema.MapType:
+		elemTransform := generateToPropertyMapMapValue(tt.ElementType)
+		if elemTransform != "v" {
+			return fmt.Sprintf("%s.map((k, v) => MapEntry(k, %s))", valueExpr, elemTransform)
+		}
+		return valueExpr
+
+	case *schema.ObjectType:
+		return fmt.Sprintf("%s.toPropertyMap()", valueExpr)
+
+	case *schema.EnumType:
+		return fmt.Sprintf("%s.value", valueExpr)
+
+	default:
+		return valueExpr
+	}
+}
+
+// generateToPropertyMapListElement generates code to serialize a list element.
+func generateToPropertyMapListElement(elemType schema.Type) string {
+	switch tt := elemType.(type) {
+	case *schema.ObjectType:
+		return "e.toPropertyMap()"
+	case *schema.EnumType:
+		_ = tt
+		return "e.value"
+	default:
+		return "e"
+	}
+}
+
+// generateToPropertyMapMapValue generates code to serialize a map value.
+func generateToPropertyMapMapValue(elemType schema.Type) string {
+	switch tt := elemType.(type) {
+	case *schema.ObjectType:
+		return "v.toPropertyMap()"
+	case *schema.EnumType:
+		_ = tt
+		return "v.value"
+	default:
+		return "v"
+	}
 }
