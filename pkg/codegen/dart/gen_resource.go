@@ -291,6 +291,18 @@ func generatePrimitiveExtraction(t schema.Type, valueExpr string, isOptional boo
 			return fmt.Sprintf("%s?.stringValue", valueExpr)
 		}
 		return fmt.Sprintf("%s?.stringValue ?? ''", valueExpr)
+	case schema.AssetType:
+		// Assets are serialized with special signatures that PropertyDeserializer handles
+		if isOptional {
+			return fmt.Sprintf("%s != null ? PropertyDeserializer.deserializeValue(%s!) as Asset? : null", valueExpr, valueExpr)
+		}
+		return fmt.Sprintf("PropertyDeserializer.deserializeValue(%s!) as Asset", valueExpr)
+	case schema.ArchiveType:
+		// Archives are serialized with special signatures that PropertyDeserializer handles
+		if isOptional {
+			return fmt.Sprintf("%s != null ? PropertyDeserializer.deserializeValue(%s!) as Archive? : null", valueExpr, valueExpr)
+		}
+		return fmt.Sprintf("PropertyDeserializer.deserializeValue(%s!) as Archive", valueExpr)
 	default:
 		// For complex types (objects, enums), we use dynamic for now
 		// The actual deserialization will depend on having proper type converters
@@ -327,6 +339,10 @@ func generateListElementExtraction(elemType schema.Type) string {
 		return "v.numberValue"
 	case schema.StringType:
 		return "v.stringValue"
+	case schema.AssetType:
+		return "PropertyDeserializer.deserializeValue(v) as Asset"
+	case schema.ArchiveType:
+		return "PropertyDeserializer.deserializeValue(v) as Archive"
 	default:
 		switch tt := elemType.(type) {
 		case *schema.ObjectType:
@@ -352,6 +368,10 @@ func generateMapValueExtraction(elemType schema.Type) string {
 		return "e.value.numberValue"
 	case schema.StringType:
 		return "e.value.stringValue"
+	case schema.AssetType:
+		return "PropertyDeserializer.deserializeValue(e.value) as Asset"
+	case schema.ArchiveType:
+		return "PropertyDeserializer.deserializeValue(e.value) as Archive"
 	default:
 		switch tt := elemType.(type) {
 		case *schema.ObjectType:

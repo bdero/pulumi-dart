@@ -599,3 +599,106 @@ dev_dependencies:
 		t.Log("dart analyze passed - generated code is valid")
 	}
 }
+
+func TestGeneratePackage_ArchiveAndAssetTypes(t *testing.T) {
+	// Create a temporary output directory
+	outDir, err := os.MkdirTemp("", "pulumi-dart-archive-asset")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer os.RemoveAll(outDir)
+
+	// Schema with Archive and Asset type properties
+	schema := `{
+		"name": "storage",
+		"version": "1.0.0",
+		"resources": {
+			"storage:index:LambdaFunction": {
+				"inputProperties": {
+					"code": {
+						"$ref": "pulumi.json#/Archive",
+						"description": "The deployment package (Archive)"
+					},
+					"name": {
+						"type": "string"
+					}
+				},
+				"requiredInputs": ["code", "name"],
+				"properties": {
+					"code": {
+						"$ref": "pulumi.json#/Archive",
+						"description": "The deployment package output"
+					},
+					"codeAsset": {
+						"$ref": "pulumi.json#/Asset",
+						"description": "A single asset"
+					},
+					"name": {
+						"type": "string"
+					},
+					"assets": {
+						"type": "array",
+						"items": {
+							"$ref": "pulumi.json#/Asset"
+						},
+						"description": "List of assets"
+					},
+					"archiveMap": {
+						"type": "object",
+						"additionalProperties": {
+							"$ref": "pulumi.json#/Archive"
+						},
+						"description": "Map of archives"
+					}
+				}
+			}
+		}
+	}`
+
+	diagnostics, err := GeneratePackage(outDir, schema, nil, "", nil)
+	if err != nil {
+		t.Fatalf("GeneratePackage failed: %v", err)
+	}
+
+	// Check that no errors were reported
+	for _, diag := range diagnostics {
+		if diag.Severity == 1 { // DIAG_ERROR
+			t.Errorf("Unexpected error diagnostic: %s", diag.Summary)
+		}
+	}
+
+	// Read the generated resource file
+	resourcePath := filepath.Join(outDir, "lib", "src", "resources", "index_lambda_function.dart")
+	resourceContent, err := os.ReadFile(resourcePath)
+	if err != nil {
+		t.Fatalf("Failed to read resource file: %v", err)
+	}
+	content := string(resourceContent)
+
+	// Verify Archive output property deserialization uses PropertyDeserializer.deserializeValue
+	if !strings.Contains(content, "PropertyDeserializer.deserializeValue") {
+		t.Errorf("Generated code should use PropertyDeserializer.deserializeValue for Archive/Asset types")
+	}
+
+	// Verify the code property (Archive) is properly deserialized
+	if !strings.Contains(content, "as Archive") {
+		t.Errorf("Generated code should cast Archive type properly")
+	}
+
+	// Verify the codeAsset property (Asset) is properly deserialized
+	if !strings.Contains(content, "as Asset") {
+		t.Errorf("Generated code should cast Asset type properly")
+	}
+
+	// Verify array of assets is handled
+	if !strings.Contains(content, "PropertyDeserializer.deserializeValue(v) as Asset") {
+		t.Errorf("Generated code should handle List<Asset> correctly")
+	}
+
+	// Verify map of archives is handled
+	if !strings.Contains(content, "PropertyDeserializer.deserializeValue(e.value) as Archive") {
+		t.Errorf("Generated code should handle Map<String, Archive> correctly")
+	}
+
+	t.Logf("Generated resource file content:\n%s", content)
+}
