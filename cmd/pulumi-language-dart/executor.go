@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -31,6 +32,8 @@ type ExecutorConfig struct {
 	Args []string
 	// Config is the Pulumi configuration as a map of key-value pairs.
 	Config map[string]string
+	// ConfigSecretKeys is the list of configuration keys that have secret values.
+	ConfigSecretKeys []string
 	// DryRun indicates whether this is a preview (dry-run) operation.
 	DryRun bool
 	// Parallel is the maximum number of parallel operations.
@@ -345,6 +348,14 @@ func (e *DartExecutor) buildEnvironment(config ExecutorConfig) []string {
 	for key, value := range config.Config {
 		envKey := fmt.Sprintf("PULUMI_CONFIG_%s", strings.ToUpper(strings.ReplaceAll(key, ":", "_")))
 		env = append(env, fmt.Sprintf("%s=%s", envKey, value))
+	}
+
+	// Add secret keys as a JSON array
+	if len(config.ConfigSecretKeys) > 0 {
+		secretKeysJSON, err := json.Marshal(config.ConfigSecretKeys)
+		if err == nil {
+			env = append(env, fmt.Sprintf("PULUMI_CONFIG_SECRET_KEYS=%s", string(secretKeysJSON)))
+		}
 	}
 
 	return env

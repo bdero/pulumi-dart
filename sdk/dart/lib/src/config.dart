@@ -52,6 +52,9 @@ class Config {
   /// Cached configuration values from environment.
   static Map<String, String>? _cachedConfig;
 
+  /// Cached set of secret configuration keys from environment.
+  static Set<String>? _cachedSecretKeys;
+
   /// Creates a Config instance with the given namespace.
   ///
   /// If [name] is not provided, uses the current project name from Runtime
@@ -84,6 +87,35 @@ class Config {
     }
 
     return _cachedConfig!;
+  }
+
+  /// Lazily loads and caches secret keys from PULUMI_CONFIG_SECRET_KEYS.
+  static Set<String> _loadSecretKeys() {
+    if (_cachedSecretKeys != null) return _cachedSecretKeys!;
+
+    _cachedSecretKeys = {};
+    final secretKeysJson = Platform.environment['PULUMI_CONFIG_SECRET_KEYS'];
+    if (secretKeysJson != null && secretKeysJson.isNotEmpty) {
+      try {
+        final decoded = jsonDecode(secretKeysJson);
+        if (decoded is List) {
+          for (final key in decoded) {
+            if (key is String) {
+              _cachedSecretKeys!.add(key);
+            }
+          }
+        }
+      } catch (_) {
+        // Ignore JSON parsing errors - treat as no secret keys
+      }
+    }
+
+    return _cachedSecretKeys!;
+  }
+
+  /// Returns true if the given fully-qualified key is marked as a secret.
+  static bool _isSecretKey(String fullKey) {
+    return _loadSecretKeys().contains(fullKey);
   }
 
   /// Gets the fully qualified key name.
@@ -348,11 +380,20 @@ class Config {
     }
   }
 
+  /// Returns true if the given key is marked as a secret in the stack configuration.
+  ///
+  /// This checks if the key is in the list of secret keys passed by the Pulumi engine.
+  /// Secret keys are those set with `pulumi config set --secret`.
+  bool isSecret(String key) {
+    return _isSecretKey(_fullKey(key));
+  }
+
   /// Clears the cached configuration.
   ///
   /// This is primarily for testing purposes.
   static void clearCache() {
     _cachedConfig = null;
+    _cachedSecretKeys = null;
   }
 }
 

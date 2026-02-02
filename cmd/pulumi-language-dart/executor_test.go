@@ -219,6 +219,87 @@ func TestBuildEnvironment_QueryMode(t *testing.T) {
 	}
 }
 
+func TestBuildEnvironment_ConfigSecretKeys(t *testing.T) {
+	executor := NewDartExecutor()
+
+	config := ExecutorConfig{
+		MonitorAddress:   "localhost:1234",
+		EngineAddress:    "localhost:5678",
+		Project:          "my-project",
+		Stack:            "dev",
+		Organization:     "my-org",
+		Parallel:         4,
+		DryRun:           false,
+		ConfigSecretKeys: []string{"myapp:password", "myapp:apiKey"},
+	}
+
+	env := executor.buildEnvironment(config)
+
+	// Check that required env vars are present
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := splitEnvVar(e)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	secretKeysValue, ok := envMap["PULUMI_CONFIG_SECRET_KEYS"]
+	if !ok {
+		t.Fatal("PULUMI_CONFIG_SECRET_KEYS not set")
+	}
+
+	// Verify it's valid JSON containing the expected keys
+	expectedJSON := `["myapp:password","myapp:apiKey"]`
+	if secretKeysValue != expectedJSON {
+		t.Errorf("PULUMI_CONFIG_SECRET_KEYS not set correctly, got %s, expected %s", secretKeysValue, expectedJSON)
+	}
+}
+
+func TestBuildEnvironment_ConfigSecretKeys_Empty(t *testing.T) {
+	executor := NewDartExecutor()
+
+	config := ExecutorConfig{
+		MonitorAddress:   "localhost:1234",
+		EngineAddress:    "localhost:5678",
+		Project:          "my-project",
+		Stack:            "dev",
+		Organization:     "my-org",
+		Parallel:         4,
+		DryRun:           false,
+		ConfigSecretKeys: []string{}, // Empty slice
+	}
+
+	env := executor.buildEnvironment(config)
+
+	// Check that PULUMI_CONFIG_SECRET_KEYS is not set when empty
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := splitEnvVar(e)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	if _, ok := envMap["PULUMI_CONFIG_SECRET_KEYS"]; ok {
+		t.Error("PULUMI_CONFIG_SECRET_KEYS should not be set when ConfigSecretKeys is empty")
+	}
+}
+
+func TestExecutorConfig_ConfigSecretKeys(t *testing.T) {
+	config := ExecutorConfig{
+		Program:          "/path/to/program",
+		ConfigSecretKeys: []string{"myapp:secret1", "myapp:secret2"},
+	}
+
+	if len(config.ConfigSecretKeys) != 2 {
+		t.Errorf("Expected 2 secret keys, got %d", len(config.ConfigSecretKeys))
+	}
+	if config.ConfigSecretKeys[0] != "myapp:secret1" {
+		t.Errorf("First secret key not set correctly, got %s", config.ConfigSecretKeys[0])
+	}
+}
+
 // splitEnvVar splits an environment variable string into key and value
 func splitEnvVar(env string) []string {
 	for i := 0; i < len(env); i++ {
