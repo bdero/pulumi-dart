@@ -4,6 +4,7 @@ import 'package:protobuf/well_known_types/google/protobuf/struct.pb.dart';
 
 import '../input.dart';
 import '../output.dart';
+import '../resource.dart';
 
 /// Special property signatures used by Pulumi's serialization protocol.
 ///
@@ -244,6 +245,10 @@ class PropertySerializer {
       return await _serializeArchive(value);
     }
 
+    if (value is Resource) {
+      return await _serializeResource(value);
+    }
+
     // For unsupported types, try to convert to string
     return SerializedValue(value: Value()..stringValue = value.toString());
   }
@@ -342,6 +347,55 @@ class PropertySerializer {
       value: Value()..structValue = struct,
       dependencies: allDependencies,
       containsSecrets: containsSecrets,
+      isKnown: isKnown,
+    );
+  }
+
+  /// Serializes a Resource to its protobuf representation.
+  ///
+  /// Resource references are serialized with the resourceSig signature,
+  /// along with the resource's URN and ID. This allows the Pulumi engine
+  /// to establish dependencies between resources.
+  ///
+  /// The serialized format is:
+  /// ```json
+  /// {
+  ///   "4dabf18193072939515e22adb298388d": "5cf8f73096256a8f31e491e813e4eb8e",
+  ///   "urn": "urn:pulumi:stack::project::type::name",
+  ///   "id": "resource-id-123"
+  /// }
+  /// ```
+  static Future<SerializedValue> _serializeResource(Resource resource) async {
+    final struct = Struct()
+      ..fields[PropertySignatures.sigKey] =
+          (Value()..stringValue = PropertySignatures.resourceSig);
+
+    // Get the URN from the resource's urn Output
+    final urnData = await resource.urn.dataFuture;
+    final allDependencies = <String>{};
+    var isKnown = true;
+
+    if (urnData.isKnown) {
+      struct.fields['urn'] = Value()..stringValue = urnData.value;
+      // Add the resource's URN as a dependency
+      allDependencies.add(urnData.value);
+    } else {
+      isKnown = false;
+    }
+
+    // If it's a CustomResource, also include the ID
+    if (resource is CustomResource) {
+      final idData = await resource.id.dataFuture;
+      if (idData.isKnown && idData.value.isNotEmpty) {
+        struct.fields['id'] = Value()..stringValue = idData.value;
+      }
+      // Note: ID may be empty/unknown during preview, which is OK
+    }
+
+    return SerializedValue(
+      value: Value()..structValue = struct,
+      dependencies: allDependencies,
+      containsSecrets: false,
       isKnown: isKnown,
     );
   }

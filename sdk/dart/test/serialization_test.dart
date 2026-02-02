@@ -3,7 +3,34 @@ import 'package:test/test.dart';
 
 import 'package:pulumi/src/input.dart';
 import 'package:pulumi/src/output.dart';
+import 'package:pulumi/src/resource.dart';
 import 'package:pulumi/src/runtime/serialization.dart';
+
+/// A minimal test custom resource implementation for serialization tests.
+class TestCustomResource extends CustomResource {
+  final Map<String, Input<Object?>?> _inputs;
+
+  TestCustomResource(
+    String name, {
+    Map<String, Input<Object?>?>? inputs,
+    ResourceOptions? opts,
+  })  : _inputs = inputs ?? {},
+        super('test:resource:TestResource', name, opts);
+
+  @override
+  Map<String, Input<Object?>?> get inputs => _inputs;
+
+  @override
+  void processOutputs(Struct properties) {
+    super.processOutputs(properties);
+  }
+}
+
+/// A minimal test component resource implementation for serialization tests.
+class TestComponentResource extends ComponentResource {
+  TestComponentResource(String name, [ResourceOptions? opts])
+      : super('test:component:TestComponent', name, opts);
+}
 
 void main() {
   group('PropertySerializer', () {
@@ -240,6 +267,137 @@ void main() {
         final struct = result.value.structValue;
         expect(struct.fields['out1']?.stringValue, 'value1');
         expect(struct.fields['out2']?.numberValue, 42.0);
+      });
+    });
+
+    group('serialize resource references', () {
+      test('serializes CustomResource with URN and ID', () async {
+        final resource = TestCustomResource('my-resource');
+        await resource.registered;
+
+        final result = await PropertySerializer.serializeValue(resource);
+        expect(result.value.hasStructValue(), isTrue);
+
+        final struct = result.value.structValue;
+
+        // Check resource signature
+        expect(
+          struct.fields[PropertySignatures.sigKey]?.stringValue,
+          equals(PropertySignatures.resourceSig),
+        );
+
+        // Check URN is present
+        expect(struct.fields.containsKey('urn'), isTrue);
+        final urn = struct.fields['urn']?.stringValue;
+        expect(urn, contains('test:resource:TestResource'));
+        expect(urn, contains('my-resource'));
+
+        // Check dependencies include the resource URN
+        expect(result.dependencies, contains(urn));
+      });
+
+      test('serializes ComponentResource with URN (no ID)', () async {
+        final component = TestComponentResource('my-component');
+        await component.registered;
+
+        final result = await PropertySerializer.serializeValue(component);
+        expect(result.value.hasStructValue(), isTrue);
+
+        final struct = result.value.structValue;
+
+        // Check resource signature
+        expect(
+          struct.fields[PropertySignatures.sigKey]?.stringValue,
+          equals(PropertySignatures.resourceSig),
+        );
+
+        // Check URN is present
+        expect(struct.fields.containsKey('urn'), isTrue);
+        final urn = struct.fields['urn']?.stringValue;
+        expect(urn, contains('test:component:TestComponent'));
+
+        // ComponentResource should not have ID field
+        expect(struct.fields.containsKey('id'), isFalse);
+      });
+
+      test('resource serialization adds dependency on resource URN', () async {
+        final resource = TestCustomResource('dep-resource');
+        await resource.registered;
+
+        final result = await PropertySerializer.serializeValue(resource);
+
+        // The resource's URN should be in dependencies
+        expect(result.dependencies, isNotEmpty);
+        final urn = await resource.urn.future;
+        expect(result.dependencies, contains(urn));
+      });
+
+      test('serializes resource nested in map', () async {
+        final resource = TestCustomResource('nested-resource');
+        await resource.registered;
+
+        final map = {
+          'name': 'test',
+          'resource': resource,
+        };
+
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.value.hasStructValue(), isTrue);
+
+        final struct = result.value.structValue;
+        expect(struct.fields['name']?.stringValue, 'test');
+
+        // Check nested resource is serialized correctly
+        final resourceStruct = struct.fields['resource']?.structValue;
+        expect(resourceStruct, isNotNull);
+        expect(
+          resourceStruct?.fields[PropertySignatures.sigKey]?.stringValue,
+          equals(PropertySignatures.resourceSig),
+        );
+
+        // Dependencies should include the resource URN
+        final urn = await resource.urn.future;
+        expect(result.dependencies, contains(urn));
+      });
+
+      test('serializes resource in list', () async {
+        final resource = TestCustomResource('list-resource');
+        await resource.registered;
+
+        final list = ['first', resource, 'last'];
+
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.value.hasListValue(), isTrue);
+
+        final listValue = result.value.listValue.values;
+        expect(listValue[0].stringValue, 'first');
+        expect(listValue[2].stringValue, 'last');
+
+        // Check middle element is resource reference
+        final resourceStruct = listValue[1].structValue;
+        expect(
+          resourceStruct.fields[PropertySignatures.sigKey]?.stringValue,
+          equals(PropertySignatures.resourceSig),
+        );
+
+        // Dependencies should include the resource URN
+        final urn = await resource.urn.future;
+        expect(result.dependencies, contains(urn));
+      });
+
+      test('serializes resource wrapped in Input', () async {
+        final resource = TestCustomResource('input-resource');
+        await resource.registered;
+
+        final input = Input.value(resource);
+        final result = await PropertySerializer.serializeInput(input);
+
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(
+          struct.fields[PropertySignatures.sigKey]?.stringValue,
+          equals(PropertySignatures.resourceSig),
+        );
       });
     });
   });
