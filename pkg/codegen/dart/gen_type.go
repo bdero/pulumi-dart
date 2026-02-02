@@ -236,8 +236,20 @@ func generatePropertyMapExtraction(t schema.Type, valueExpr string, isOptional b
 }
 
 // generatePropertyMapListElementExtraction generates code to extract a list element from a property map.
+// The variable 'e' refers to each element in the list being mapped.
 func generatePropertyMapListElementExtraction(elemType schema.Type) string {
 	switch tt := elemType.(type) {
+	case *schema.OptionalType:
+		// Handle optional element types
+		return generatePropertyMapListElementExtraction(tt.ElementType)
+	case *schema.ArrayType:
+		// Nested array: List<List<T>> - need to recursively map inner list
+		innerExtract := generatePropertyMapListElementExtractionWithVar(tt.ElementType, "inner")
+		return fmt.Sprintf("(e as List).map((inner) => %s).toList()", innerExtract)
+	case *schema.MapType:
+		// Array of maps: List<Map<String, T>> - need to map inner map values
+		innerExtract := generatePropertyMapMapValueExtractionWithVar(tt.ElementType, "mapVal")
+		return fmt.Sprintf("(e as Map<String, dynamic>).map((mapKey, mapVal) => MapEntry(mapKey, %s))", innerExtract)
 	case *schema.ObjectType:
 		className := tokenToQualifiedTypeClassName(tt.Token)
 		return fmt.Sprintf("%s.fromPropertyMap(e as Map<String, dynamic>)", className)
@@ -250,9 +262,47 @@ func generatePropertyMapListElementExtraction(elemType schema.Type) string {
 	}
 }
 
+// generatePropertyMapListElementExtractionWithVar is like generatePropertyMapListElementExtraction
+// but uses a custom variable name for nested mapping scenarios.
+func generatePropertyMapListElementExtractionWithVar(elemType schema.Type, varName string) string {
+	switch tt := elemType.(type) {
+	case *schema.OptionalType:
+		return generatePropertyMapListElementExtractionWithVar(tt.ElementType, varName)
+	case *schema.ArrayType:
+		// Deeply nested arrays - use unique var names to avoid shadowing
+		innerVar := varName + "Inner"
+		innerExtract := generatePropertyMapListElementExtractionWithVar(tt.ElementType, innerVar)
+		return fmt.Sprintf("(%s as List).map((%s) => %s).toList()", varName, innerVar, innerExtract)
+	case *schema.MapType:
+		innerVar := varName + "Val"
+		innerExtract := generatePropertyMapMapValueExtractionWithVar(tt.ElementType, innerVar)
+		return fmt.Sprintf("(%s as Map<String, dynamic>).map((%sKey, %s) => MapEntry(%sKey, %s))", varName, varName, innerVar, varName, innerExtract)
+	case *schema.ObjectType:
+		className := tokenToQualifiedTypeClassName(tt.Token)
+		return fmt.Sprintf("%s.fromPropertyMap(%s as Map<String, dynamic>)", className, varName)
+	case *schema.EnumType:
+		className := tokenToQualifiedTypeClassName(tt.Token)
+		return fmt.Sprintf("%s.fromValue(%s)", className, varName)
+	default:
+		dartType := typeToDart(elemType, true)
+		return fmt.Sprintf("%s as %s", varName, dartType)
+	}
+}
+
 // generatePropertyMapMapValueExtraction generates code to extract a map value from a property map.
+// The variable 'v' refers to each value in the map being mapped.
 func generatePropertyMapMapValueExtraction(elemType schema.Type) string {
 	switch tt := elemType.(type) {
+	case *schema.OptionalType:
+		return generatePropertyMapMapValueExtraction(tt.ElementType)
+	case *schema.ArrayType:
+		// Map of arrays: Map<String, List<T>> - need to map inner list
+		innerExtract := generatePropertyMapListElementExtractionWithVar(tt.ElementType, "listElem")
+		return fmt.Sprintf("(v as List).map((listElem) => %s).toList()", innerExtract)
+	case *schema.MapType:
+		// Nested maps: Map<String, Map<String, T>> - need to recursively map inner map
+		innerExtract := generatePropertyMapMapValueExtractionWithVar(tt.ElementType, "innerVal")
+		return fmt.Sprintf("(v as Map<String, dynamic>).map((innerKey, innerVal) => MapEntry(innerKey, %s))", innerExtract)
 	case *schema.ObjectType:
 		className := tokenToQualifiedTypeClassName(tt.Token)
 		return fmt.Sprintf("%s.fromPropertyMap(v as Map<String, dynamic>)", className)
@@ -262,6 +312,32 @@ func generatePropertyMapMapValueExtraction(elemType schema.Type) string {
 	default:
 		dartType := typeToDart(elemType, true)
 		return fmt.Sprintf("v as %s", dartType)
+	}
+}
+
+// generatePropertyMapMapValueExtractionWithVar is like generatePropertyMapMapValueExtraction
+// but uses a custom variable name for nested mapping scenarios.
+func generatePropertyMapMapValueExtractionWithVar(elemType schema.Type, varName string) string {
+	switch tt := elemType.(type) {
+	case *schema.OptionalType:
+		return generatePropertyMapMapValueExtractionWithVar(tt.ElementType, varName)
+	case *schema.ArrayType:
+		innerVar := varName + "Elem"
+		innerExtract := generatePropertyMapListElementExtractionWithVar(tt.ElementType, innerVar)
+		return fmt.Sprintf("(%s as List).map((%s) => %s).toList()", varName, innerVar, innerExtract)
+	case *schema.MapType:
+		innerVar := varName + "Inner"
+		innerExtract := generatePropertyMapMapValueExtractionWithVar(tt.ElementType, innerVar)
+		return fmt.Sprintf("(%s as Map<String, dynamic>).map((%sKey, %s) => MapEntry(%sKey, %s))", varName, varName, innerVar, varName, innerExtract)
+	case *schema.ObjectType:
+		className := tokenToQualifiedTypeClassName(tt.Token)
+		return fmt.Sprintf("%s.fromPropertyMap(%s as Map<String, dynamic>)", className, varName)
+	case *schema.EnumType:
+		className := tokenToQualifiedTypeClassName(tt.Token)
+		return fmt.Sprintf("%s.fromValue(%s)", className, varName)
+	default:
+		dartType := typeToDart(elemType, true)
+		return fmt.Sprintf("%s as %s", varName, dartType)
 	}
 }
 

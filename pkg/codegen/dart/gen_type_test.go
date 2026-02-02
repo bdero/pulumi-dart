@@ -659,3 +659,210 @@ func TestCollectObjectTypeImports(t *testing.T) {
 		}
 	})
 }
+
+func TestGeneratePropertyMapExtractionNestedTypes(t *testing.T) {
+	pkg := &schema.Package{Name: "test"}
+
+	t.Run("nested array - List<List<String>>", func(t *testing.T) {
+		objectType := &schema.ObjectType{
+			Token: "test:index:NestedArrayType",
+			Properties: []*schema.Property{
+				{Name: "matrix", Type: &schema.ArrayType{ElementType: &schema.ArrayType{ElementType: schema.StringType}}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+		t.Logf("Generated code:\n%s", result)
+
+		// Check that nested array deserialization recursively applies mapping
+		// Should use proper nested List mapping, not just a simple cast
+		if strings.Contains(result, "matrix: (properties['matrix'] as List?)?.map((e) => e as List<String>)") {
+			t.Error("Nested arrays should not use simple casts - need recursive mapping")
+		}
+		// Should handle nested arrays properly with recursive mapping
+		if !strings.Contains(result, "(e as List).map") {
+			t.Error("Expected nested array deserialization with recursive List mapping")
+		}
+	})
+
+	t.Run("map of arrays - Map<String, List<String>>", func(t *testing.T) {
+		objectType := &schema.ObjectType{
+			Token: "test:index:MapOfArraysType",
+			Properties: []*schema.Property{
+				{Name: "groups", Type: &schema.MapType{ElementType: &schema.ArrayType{ElementType: schema.StringType}}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+		t.Logf("Generated code:\n%s", result)
+
+		// Should handle map of arrays properly with proper type conversion
+		if strings.Contains(result, "groups: (properties['groups'] as Map<String, dynamic>?)?.map((k, v) => MapEntry(k, v as List<String>))") {
+			t.Error("Map of arrays should not use simple casts for list values")
+		}
+		// Should cast the inner list properly
+		if !strings.Contains(result, "(v as List).map") {
+			t.Error("Expected map of arrays deserialization with List mapping for values")
+		}
+	})
+
+	t.Run("array of maps - List<Map<String, String>>", func(t *testing.T) {
+		objectType := &schema.ObjectType{
+			Token: "test:index:ArrayOfMapsType",
+			Properties: []*schema.Property{
+				{Name: "records", Type: &schema.ArrayType{ElementType: &schema.MapType{ElementType: schema.StringType}}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+		t.Logf("Generated code:\n%s", result)
+
+		// Should handle array of maps properly
+		if strings.Contains(result, ".map((e) => e as Map<String, String>)") {
+			t.Error("Array of maps should not use simple casts for map elements")
+		}
+		// Should cast the inner map properly
+		if !strings.Contains(result, "(e as Map<String, dynamic>).map") {
+			t.Error("Expected array of maps deserialization with Map mapping for elements")
+		}
+	})
+
+	t.Run("array of array of objects - List<List<ObjectType>>", func(t *testing.T) {
+		nestedType := &schema.ObjectType{Token: "test:index:DeepItem"}
+
+		objectType := &schema.ObjectType{
+			Token: "test:index:DeepNestedType",
+			Properties: []*schema.Property{
+				{Name: "deep", Type: &schema.ArrayType{ElementType: &schema.ArrayType{ElementType: nestedType}}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+		t.Logf("Generated code:\n%s", result)
+
+		// Should handle deeply nested types properly
+		if !strings.Contains(result, "IndexDeepItem.fromPropertyMap") {
+			t.Error("Expected deeply nested objects to use fromPropertyMap")
+		}
+	})
+
+	t.Run("array of enums - List<Enum>", func(t *testing.T) {
+		enumType := &schema.EnumType{
+			Token:       "test:index:Priority",
+			ElementType: schema.StringType,
+		}
+
+		objectType := &schema.ObjectType{
+			Token: "test:index:TypeWithEnumArray",
+			Properties: []*schema.Property{
+				{Name: "priorities", Type: &schema.ArrayType{ElementType: enumType}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+		t.Logf("Generated code:\n%s", result)
+
+		// Should handle array of enums using fromValue
+		if !strings.Contains(result, "IndexPriority.fromValue(e)") {
+			t.Error("Expected array of enums deserialization with fromValue")
+		}
+	})
+
+	t.Run("map of enums - Map<String, Enum>", func(t *testing.T) {
+		enumType := &schema.EnumType{
+			Token:       "test:index:Status",
+			ElementType: schema.StringType,
+		}
+
+		objectType := &schema.ObjectType{
+			Token: "test:index:TypeWithEnumMap",
+			Properties: []*schema.Property{
+				{Name: "statusMap", Type: &schema.MapType{ElementType: enumType}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+		t.Logf("Generated code:\n%s", result)
+
+		// Should handle map of enums using fromValue
+		if !strings.Contains(result, "IndexStatus.fromValue(v)") {
+			t.Error("Expected map of enums deserialization with fromValue")
+		}
+	})
+
+	t.Run("map of objects - Map<String, ObjectType>", func(t *testing.T) {
+		nestedType := &schema.ObjectType{Token: "test:index:ConfigItem"}
+
+		objectType := &schema.ObjectType{
+			Token: "test:index:TypeWithObjectMap",
+			Properties: []*schema.Property{
+				{Name: "configs", Type: &schema.MapType{ElementType: nestedType}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+		t.Logf("Generated code:\n%s", result)
+
+		// Should handle map of objects using fromPropertyMap
+		if !strings.Contains(result, "IndexConfigItem.fromPropertyMap(v as Map<String, dynamic>)") {
+			t.Error("Expected map of objects deserialization with fromPropertyMap")
+		}
+	})
+
+	t.Run("nested map - Map<String, Map<String, String>>", func(t *testing.T) {
+		objectType := &schema.ObjectType{
+			Token: "test:index:NestedMapType",
+			Properties: []*schema.Property{
+				{Name: "metadata", Type: &schema.MapType{ElementType: &schema.MapType{ElementType: schema.StringType}}},
+			},
+		}
+
+		content, err := generateType(pkg, objectType)
+		if err != nil {
+			t.Fatalf("generateType failed: %v", err)
+		}
+
+		result := string(content)
+		t.Logf("Generated code:\n%s", result)
+
+		// Should handle nested maps with proper casting
+		if !strings.Contains(result, "(v as Map<String, dynamic>).map") {
+			t.Error("Expected nested maps deserialization with recursive mapping")
+		}
+	})
+}
