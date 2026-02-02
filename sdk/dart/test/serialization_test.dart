@@ -1160,6 +1160,473 @@ void main() {
     });
   });
 
+  group('Nested Output/Input in collections', () {
+    group('List containing Output values', () {
+      test('serializes list with known Output values', () async {
+        final list = [
+          Output.of('first'),
+          Output.of(42),
+          Output.of(true),
+        ];
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.value.hasListValue(), isTrue);
+        final listValue = result.value.listValue.values;
+        expect(listValue, hasLength(3));
+        expect(listValue[0].stringValue, 'first');
+        expect(listValue[1].numberValue, 42.0);
+        expect(listValue[2].boolValue, isTrue);
+        expect(result.isKnown, isTrue);
+      });
+
+      test('serializes list with unknown Output values', () async {
+        final list = [
+          Output.of('known'),
+          Output<String>.unknown(),
+        ];
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.value.hasListValue(), isTrue);
+        final listValue = result.value.listValue.values;
+        expect(listValue, hasLength(2));
+        expect(listValue[0].stringValue, 'known');
+        // Unknown Output should have output signature
+        expect(listValue[1].structValue.fields[PropertySignatures.sigKey]?.stringValue,
+            PropertySignatures.outputSig);
+        expect(result.isKnown, isFalse);
+      });
+
+      test('serializes list with secret Output values', () async {
+        final list = [
+          Output.of('public'),
+          Output.of('private').asSecret(),
+        ];
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.value.hasListValue(), isTrue);
+        final listValue = result.value.listValue.values;
+        expect(listValue[0].stringValue, 'public');
+        // Secret Output should have secret signature wrapper
+        expect(listValue[1].structValue.fields[PropertySignatures.sigKey]?.stringValue,
+            PropertySignatures.secretSig);
+        expect(listValue[1].structValue.fields['value']?.stringValue, 'private');
+        expect(result.containsSecrets, isTrue);
+      });
+
+      test('aggregates dependencies from Output values in list', () async {
+        final list = [
+          Output.of('a').withDependencies({'urn:dep1'}),
+          Output.of('b').withDependencies({'urn:dep2', 'urn:dep3'}),
+        ];
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.dependencies, containsAll(['urn:dep1', 'urn:dep2', 'urn:dep3']));
+      });
+
+      test('serializes list mixing Output and primitive values', () async {
+        final list = [
+          'primitive-string',
+          Output.of(42),
+          true,
+          Output.of('output-string'),
+          null,
+        ];
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.value.hasListValue(), isTrue);
+        final listValue = result.value.listValue.values;
+        expect(listValue, hasLength(5));
+        expect(listValue[0].stringValue, 'primitive-string');
+        expect(listValue[1].numberValue, 42.0);
+        expect(listValue[2].boolValue, isTrue);
+        expect(listValue[3].stringValue, 'output-string');
+        expect(listValue[4].hasNullValue(), isTrue);
+      });
+    });
+
+    group('List containing Input values', () {
+      test('serializes list with InputValue values', () async {
+        final list = [
+          Input.value('first'),
+          Input.value(42),
+        ];
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.value.hasListValue(), isTrue);
+        final listValue = result.value.listValue.values;
+        expect(listValue, hasLength(2));
+        expect(listValue[0].stringValue, 'first');
+        expect(listValue[1].numberValue, 42.0);
+      });
+
+      test('serializes list with InputFuture values', () async {
+        final list = [
+          Input.future(Future.value('async-value')),
+          Input.future(Future.value(100)),
+        ];
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.value.hasListValue(), isTrue);
+        final listValue = result.value.listValue.values;
+        expect(listValue, hasLength(2));
+        expect(listValue[0].stringValue, 'async-value');
+        expect(listValue[1].numberValue, 100.0);
+      });
+
+      test('serializes list with InputOutput values', () async {
+        final list = [
+          Input.output(Output.of('from-output')),
+          Input.output(Output.of(99).asSecret()),
+        ];
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.value.hasListValue(), isTrue);
+        final listValue = result.value.listValue.values;
+        expect(listValue[0].stringValue, 'from-output');
+        // Secret value should have secret signature
+        expect(listValue[1].structValue.fields[PropertySignatures.sigKey]?.stringValue,
+            PropertySignatures.secretSig);
+        expect(result.containsSecrets, isTrue);
+      });
+
+      test('serializes list mixing Input types and primitives', () async {
+        final list = [
+          'plain',
+          Input.value(42),
+          Input.future(Future.value(true)),
+          Input.output(Output.of('output')),
+          null,
+        ];
+        final result = await PropertySerializer.serializeValue(list);
+        expect(result.value.hasListValue(), isTrue);
+        final listValue = result.value.listValue.values;
+        expect(listValue, hasLength(5));
+        expect(listValue[0].stringValue, 'plain');
+        expect(listValue[1].numberValue, 42.0);
+        expect(listValue[2].boolValue, isTrue);
+        expect(listValue[3].stringValue, 'output');
+        expect(listValue[4].hasNullValue(), isTrue);
+      });
+    });
+
+    group('Map with Output values', () {
+      test('serializes map with known Output values', () async {
+        final map = {
+          'name': Output.of('test'),
+          'count': Output.of(42),
+          'enabled': Output.of(true),
+        };
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(struct.fields['name']?.stringValue, 'test');
+        expect(struct.fields['count']?.numberValue, 42.0);
+        expect(struct.fields['enabled']?.boolValue, isTrue);
+        expect(result.isKnown, isTrue);
+      });
+
+      test('serializes map with unknown Output values', () async {
+        final map = {
+          'known': Output.of('value'),
+          'unknown': Output<String>.unknown(),
+        };
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(struct.fields['known']?.stringValue, 'value');
+        expect(struct.fields['unknown']?.structValue.fields[PropertySignatures.sigKey]?.stringValue,
+            PropertySignatures.outputSig);
+        expect(result.isKnown, isFalse);
+      });
+
+      test('serializes map with secret Output values', () async {
+        final map = {
+          'public': Output.of('visible'),
+          'private': Output.of('secret-data').asSecret(),
+        };
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(struct.fields['public']?.stringValue, 'visible');
+        expect(struct.fields['private']?.structValue.fields[PropertySignatures.sigKey]?.stringValue,
+            PropertySignatures.secretSig);
+        expect(struct.fields['private']?.structValue.fields['value']?.stringValue, 'secret-data');
+        expect(result.containsSecrets, isTrue);
+      });
+
+      test('aggregates dependencies from Output values in map', () async {
+        final map = {
+          'field1': Output.of('a').withDependencies({'urn:dep1'}),
+          'field2': Output.of('b').withDependencies({'urn:dep2'}),
+        };
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.dependencies, containsAll(['urn:dep1', 'urn:dep2']));
+      });
+
+      test('serializes map mixing Output and primitive values', () async {
+        final map = {
+          'primitiveString': 'hello',
+          'outputNumber': Output.of(42),
+          'primitiveBool': true,
+          'outputString': Output.of('world'),
+          'primitiveNull': null,
+        };
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(struct.fields['primitiveString']?.stringValue, 'hello');
+        expect(struct.fields['outputNumber']?.numberValue, 42.0);
+        expect(struct.fields['primitiveBool']?.boolValue, isTrue);
+        expect(struct.fields['outputString']?.stringValue, 'world');
+        expect(struct.fields['primitiveNull']?.hasNullValue(), isTrue);
+      });
+    });
+
+    group('Map with Input values', () {
+      test('serializes map with InputValue values', () async {
+        final map = {
+          'field1': Input.value('value1'),
+          'field2': Input.value(99),
+        };
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(struct.fields['field1']?.stringValue, 'value1');
+        expect(struct.fields['field2']?.numberValue, 99.0);
+      });
+
+      test('serializes map with InputFuture values', () async {
+        final map = {
+          'async1': Input.future(Future.value('result1')),
+          'async2': Input.future(Future.value(200)),
+        };
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(struct.fields['async1']?.stringValue, 'result1');
+        expect(struct.fields['async2']?.numberValue, 200.0);
+      });
+
+      test('serializes map with InputOutput values', () async {
+        final map = {
+          'output1': Input.output(Output.of('from-output')),
+          'output2': Input.output(Output.of(77)),
+        };
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(struct.fields['output1']?.stringValue, 'from-output');
+        expect(struct.fields['output2']?.numberValue, 77.0);
+      });
+
+      test('serializes map mixing Input types and primitives', () async {
+        final map = {
+          'plain': 'text',
+          'inputValue': Input.value(10),
+          'inputFuture': Input.future(Future.value(20)),
+          'inputOutput': Input.output(Output.of(30)),
+        };
+        final result = await PropertySerializer.serializeValue(map);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(struct.fields['plain']?.stringValue, 'text');
+        expect(struct.fields['inputValue']?.numberValue, 10.0);
+        expect(struct.fields['inputFuture']?.numberValue, 20.0);
+        expect(struct.fields['inputOutput']?.numberValue, 30.0);
+      });
+    });
+
+    group('Deeply nested structures', () {
+      test('serializes deeply nested Output in list of maps', () async {
+        final structure = [
+          {
+            'name': Output.of('item1'),
+            'count': 10,
+          },
+          {
+            'name': Output.of('item2'),
+            'count': 20,
+          },
+        ];
+        final result = await PropertySerializer.serializeValue(structure);
+        expect(result.value.hasListValue(), isTrue);
+        final list = result.value.listValue.values;
+        expect(list[0].structValue.fields['name']?.stringValue, 'item1');
+        expect(list[0].structValue.fields['count']?.numberValue, 10.0);
+        expect(list[1].structValue.fields['name']?.stringValue, 'item2');
+        expect(list[1].structValue.fields['count']?.numberValue, 20.0);
+      });
+
+      test('serializes deeply nested Input in map of lists', () async {
+        final structure = {
+          'numbers': [
+            Input.value(1),
+            Input.value(2),
+            Input.value(3),
+          ],
+          'strings': [
+            Input.future(Future.value('a')),
+            Input.future(Future.value('b')),
+          ],
+        };
+        final result = await PropertySerializer.serializeValue(structure);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        final numbers = struct.fields['numbers']?.listValue.values;
+        expect(numbers?[0].numberValue, 1.0);
+        expect(numbers?[1].numberValue, 2.0);
+        expect(numbers?[2].numberValue, 3.0);
+        final strings = struct.fields['strings']?.listValue.values;
+        expect(strings?[0].stringValue, 'a');
+        expect(strings?[1].stringValue, 'b');
+      });
+
+      test('serializes three-level deep nesting with Output', () async {
+        final structure = {
+          'level1': {
+            'level2': {
+              'level3': Output.of('deep-value'),
+            },
+          },
+        };
+        final result = await PropertySerializer.serializeValue(structure);
+        final level1 = result.value.structValue.fields['level1']?.structValue;
+        final level2 = level1?.fields['level2']?.structValue;
+        expect(level2?.fields['level3']?.stringValue, 'deep-value');
+      });
+
+      test('serializes mixed nesting with Output, Input, and primitives', () async {
+        final structure = {
+          'config': {
+            'name': Output.of('my-app'),
+            'version': Input.value('1.0.0'),
+            'settings': {
+              'debug': true,
+              'timeout': Output.of(30),
+              'features': [
+                Input.value('feature1'),
+                Output.of('feature2'),
+                'feature3',
+              ],
+            },
+          },
+          'metadata': {
+            'created': Input.future(Future.value('2024-01-01')),
+            'tags': [Output.of('tag1'), Output.of('tag2')],
+          },
+        };
+        final result = await PropertySerializer.serializeValue(structure);
+        expect(result.value.hasStructValue(), isTrue);
+
+        // Navigate and verify structure
+        final config = result.value.structValue.fields['config']?.structValue;
+        expect(config?.fields['name']?.stringValue, 'my-app');
+        expect(config?.fields['version']?.stringValue, '1.0.0');
+
+        final settings = config?.fields['settings']?.structValue;
+        expect(settings?.fields['debug']?.boolValue, isTrue);
+        expect(settings?.fields['timeout']?.numberValue, 30.0);
+
+        final features = settings?.fields['features']?.listValue.values;
+        expect(features?[0].stringValue, 'feature1');
+        expect(features?[1].stringValue, 'feature2');
+        expect(features?[2].stringValue, 'feature3');
+
+        final metadata = result.value.structValue.fields['metadata']?.structValue;
+        expect(metadata?.fields['created']?.stringValue, '2024-01-01');
+
+        final tags = metadata?.fields['tags']?.listValue.values;
+        expect(tags?[0].stringValue, 'tag1');
+        expect(tags?[1].stringValue, 'tag2');
+      });
+
+      test('aggregates dependencies from deeply nested Outputs', () async {
+        final structure = {
+          'outer': {
+            'inner': [
+              Output.of('a').withDependencies({'urn:deep1'}),
+              {
+                'deepest': Output.of('b').withDependencies({'urn:deep2'}),
+              },
+            ],
+          },
+        };
+        final result = await PropertySerializer.serializeValue(structure);
+        expect(result.dependencies, containsAll(['urn:deep1', 'urn:deep2']));
+      });
+
+      test('tracks secrets from deeply nested Outputs', () async {
+        final structure = {
+          'public': {
+            'data': Output.of('visible'),
+          },
+          'private': {
+            'secrets': [
+              Output.of('secret1').asSecret(),
+              {
+                'nested': Output.of('secret2').asSecret(),
+              },
+            ],
+          },
+        };
+        final result = await PropertySerializer.serializeValue(structure);
+        expect(result.containsSecrets, isTrue);
+      });
+
+      test('tracks unknown status from deeply nested Outputs', () async {
+        final structure = {
+          'known': {
+            'value': Output.of('known-value'),
+          },
+          'unknown': {
+            'nested': [
+              Output<String>.unknown(),
+            ],
+          },
+        };
+        final result = await PropertySerializer.serializeValue(structure);
+        expect(result.isKnown, isFalse);
+      });
+
+      test('serializes Output containing collection value', () async {
+        final output = Output.of({
+          'key': 'value',
+          'list': [1, 2, 3],
+        });
+        final result = await PropertySerializer.serializeOutput(output);
+        expect(result.value.hasStructValue(), isTrue);
+        final struct = result.value.structValue;
+        expect(struct.fields['key']?.stringValue, 'value');
+        expect(struct.fields['list']?.listValue.values, hasLength(3));
+      });
+
+      test('serializes Input containing nested Output', () async {
+        // Input wrapping a map that contains Output values
+        final input = Input.value({
+          'field': Output.of('nested-in-input'),
+        });
+        final result = await PropertySerializer.serializeInput(input);
+        expect(result.value.hasStructValue(), isTrue);
+        expect(result.value.structValue.fields['field']?.stringValue, 'nested-in-input');
+      });
+
+      test('serializes list of lists with Outputs at various depths', () async {
+        final structure = [
+          [Output.of('a'), Output.of('b')],
+          [
+            [Output.of('c'), 'primitive'],
+            Output.of('d'),
+          ],
+        ];
+        final result = await PropertySerializer.serializeValue(structure);
+        expect(result.value.hasListValue(), isTrue);
+        final outer = result.value.listValue.values;
+
+        final first = outer[0].listValue.values;
+        expect(first[0].stringValue, 'a');
+        expect(first[1].stringValue, 'b');
+
+        final second = outer[1].listValue.values;
+        final nestedList = second[0].listValue.values;
+        expect(nestedList[0].stringValue, 'c');
+        expect(nestedList[1].stringValue, 'primitive');
+        expect(second[1].stringValue, 'd');
+      });
+    });
+  });
+
   group('Roundtrip serialization', () {
     test('primitives roundtrip correctly', () async {
       final values = [null, true, false, 42, 3.14, 'hello'];
