@@ -76,19 +76,36 @@ func (e *DartExecutor) Run(ctx context.Context, config ExecutorConfig) (*Executo
 
 	// Build the command based on execution mode
 	var cmd *exec.Cmd
-	var err error
+	var aotSnapshotPath string // Track AOT snapshot for cleanup
 
 	switch config.ExecutionMode {
 	case "binary":
+		var err error
 		cmd, err = e.buildBinaryCommand(ctx, config, programPath)
+		if err != nil {
+			return nil, err
+		}
 	case "aot":
-		cmd, err = e.buildAotCommand(ctx, config, programPath)
+		aotResult, err := e.buildAotCommand(ctx, config, programPath)
+		if err != nil {
+			return nil, err
+		}
+		cmd = aotResult.cmd
+		aotSnapshotPath = aotResult.snapshotPath
 	default: // "run" mode
+		var err error
 		cmd, err = e.buildRunCommand(ctx, config, programPath)
+		if err != nil {
+			return nil, err
+		}
 	}
 
-	if err != nil {
-		return nil, err
+	// Clean up AOT snapshot after execution (if applicable)
+	if aotSnapshotPath != "" {
+		defer func() {
+			// Remove the AOT snapshot file to avoid stale artifacts
+			_ = os.Remove(aotSnapshotPath)
+		}()
 	}
 
 	// Set up environment variables
@@ -100,7 +117,7 @@ func (e *DartExecutor) Run(ctx context.Context, config ExecutorConfig) (*Executo
 	cmd.Stderr = os.Stderr
 
 	// Run the command
-	err = cmd.Run()
+	err := cmd.Run()
 	if err != nil {
 		if exitErr, ok := err.(*exec.ExitError); ok {
 			// Program exited with non-zero status
@@ -138,9 +155,16 @@ func (e *DartExecutor) buildRunCommand(ctx context.Context, config ExecutorConfi
 	return cmd, nil
 }
 
+// aotCommandResult contains the command and cleanup info for AOT execution.
+type aotCommandResult struct {
+	cmd          *exec.Cmd
+	snapshotPath string // Path to the AOT snapshot that should be cleaned up
+}
+
 // buildAotCommand creates a command for AOT execution mode.
 // This compiles the Dart program to an AOT snapshot and runs it with dartaotruntime.
-func (e *DartExecutor) buildAotCommand(ctx context.Context, config ExecutorConfig, programPath string) (*exec.Cmd, error) {
+// Returns the command and the snapshot path for cleanup.
+func (e *DartExecutor) buildAotCommand(ctx context.Context, config ExecutorConfig, programPath string) (*aotCommandResult, error) {
 	dartPath, err := e.findDart()
 	if err != nil {
 		return nil, fmt.Errorf("dart not found in PATH: %w", err)
@@ -186,7 +210,10 @@ func (e *DartExecutor) buildAotCommand(ctx context.Context, config ExecutorConfi
 	cmd := exec.CommandContext(ctx, dartaotruntime, args...)
 	cmd.Dir = programPath
 
-	return cmd, nil
+	return &aotCommandResult{
+		cmd:          cmd,
+		snapshotPath: snapshotPath,
+	}, nil
 }
 
 // buildBinaryCommand creates a command for pre-compiled binary execution mode.

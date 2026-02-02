@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"testing"
 )
 
@@ -300,4 +301,73 @@ func TestBuildRunCommand_WithoutEntryPoint(t *testing.T) {
 	if args[2] != "--arg1" {
 		t.Errorf("Expected args[2] to be '--arg1', got %s", args[2])
 	}
+}
+
+func TestAotCommandResult_SnapshotPath(t *testing.T) {
+	// Test that aotCommandResult correctly stores the snapshot path for cleanup
+	result := aotCommandResult{
+		cmd:          nil,
+		snapshotPath: "/path/to/.dart_tool/pulumi_aot.aot",
+	}
+
+	if result.snapshotPath != "/path/to/.dart_tool/pulumi_aot.aot" {
+		t.Errorf("snapshotPath not set correctly, got %s", result.snapshotPath)
+	}
+}
+
+func TestBuildAotCommand_ReturnsSnapshotPath(t *testing.T) {
+	// This test verifies that buildAotCommand returns the snapshot path
+	// in the aotCommandResult for cleanup purposes
+	executor := NewDartExecutor()
+
+	// Create a temp directory with proper structure
+	tempDir := t.TempDir()
+	binDir := tempDir + "/bin"
+	dartToolDir := tempDir + "/.dart_tool"
+
+	// Create necessary directories
+	if err := createDir(binDir); err != nil {
+		t.Fatalf("Failed to create bin directory: %v", err)
+	}
+	if err := createDir(dartToolDir); err != nil {
+		t.Fatalf("Failed to create .dart_tool directory: %v", err)
+	}
+
+	// Create a minimal main.dart file
+	mainDart := binDir + "/main.dart"
+	if err := writeFile(mainDart, "void main() {}"); err != nil {
+		t.Fatalf("Failed to create main.dart: %v", err)
+	}
+
+	config := ExecutorConfig{
+		Program:       tempDir,
+		ExecutionMode: "aot",
+	}
+
+	ctx := context.Background()
+	result, err := executor.buildAotCommand(ctx, config, tempDir)
+	if err != nil {
+		t.Skipf("Skipping test (Dart or dartaotruntime may not be available): %v", err)
+	}
+
+	// Verify the snapshot path is set in the result
+	expectedSnapshotPath := tempDir + "/.dart_tool/pulumi_aot.aot"
+	if result.snapshotPath != expectedSnapshotPath {
+		t.Errorf("Expected snapshotPath %s, got %s", expectedSnapshotPath, result.snapshotPath)
+	}
+
+	// Verify the command is not nil
+	if result.cmd == nil {
+		t.Error("Expected cmd to be non-nil")
+	}
+}
+
+// Helper function to create a directory
+func createDir(path string) error {
+	return os.MkdirAll(path, 0755)
+}
+
+// Helper function to write a file
+func writeFile(path, content string) error {
+	return os.WriteFile(path, []byte(content), 0644)
 }
