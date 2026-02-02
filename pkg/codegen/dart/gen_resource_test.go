@@ -650,4 +650,817 @@ func TestCollectTypeImports(t *testing.T) {
 			t.Errorf("Expected exactly 1 import for shared type, got %d", count)
 		}
 	})
+
+	t.Run("handles map of objects", func(t *testing.T) {
+		nestedType := &schema.ObjectType{Token: "test:index:MapValueType"}
+
+		props := []*schema.Property{
+			{Name: "items", Type: &schema.MapType{ElementType: nestedType}},
+		}
+
+		imports := collectTypeImports(pkg, props)
+
+		found := false
+		for _, imp := range imports {
+			if strings.Contains(imp, "index_map_value_type.dart") {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			t.Error("Expected import for map element type not found")
+		}
+	})
+
+	t.Run("handles optional wrapped types", func(t *testing.T) {
+		nestedType := &schema.ObjectType{Token: "test:index:OptionalWrappedType"}
+
+		props := []*schema.Property{
+			{Name: "config", Type: &schema.OptionalType{ElementType: nestedType}},
+		}
+
+		imports := collectTypeImports(pkg, props)
+
+		found := false
+		for _, imp := range imports {
+			if strings.Contains(imp, "index_optional_wrapped_type.dart") {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			t.Error("Expected import for optional wrapped type not found")
+		}
+	})
+
+	t.Run("handles union types with object elements", func(t *testing.T) {
+		objectType1 := &schema.ObjectType{Token: "test:index:UnionTypeA"}
+		objectType2 := &schema.ObjectType{Token: "test:index:UnionTypeB"}
+
+		props := []*schema.Property{
+			{Name: "unionProp", Type: &schema.UnionType{ElementTypes: []schema.Type{objectType1, objectType2}}},
+		}
+
+		imports := collectTypeImports(pkg, props)
+
+		foundA := false
+		foundB := false
+		for _, imp := range imports {
+			if strings.Contains(imp, "index_union_type_a.dart") {
+				foundA = true
+			}
+			if strings.Contains(imp, "index_union_type_b.dart") {
+				foundB = true
+			}
+		}
+
+		if !foundA {
+			t.Error("Expected import for union type A not found")
+		}
+		if !foundB {
+			t.Error("Expected import for union type B not found")
+		}
+	})
+
+	t.Run("handles input wrapped types", func(t *testing.T) {
+		nestedType := &schema.ObjectType{Token: "test:index:InputWrappedType"}
+
+		props := []*schema.Property{
+			{Name: "inputProp", Type: &schema.InputType{ElementType: nestedType}},
+		}
+
+		imports := collectTypeImports(pkg, props)
+
+		found := false
+		for _, imp := range imports {
+			if strings.Contains(imp, "index_input_wrapped_type.dart") {
+				found = true
+				break
+			}
+		}
+
+		if !found {
+			t.Error("Expected import for input wrapped type not found")
+		}
+	})
+}
+
+func TestGenerateResourceWithComplexNestedInputs(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "test",
+	}
+
+	t.Run("resource with array of objects", func(t *testing.T) {
+		itemType := &schema.ObjectType{Token: "test:index:ItemConfig"}
+
+		resource := &schema.Resource{
+			Token:       "test:index:ArrayOfObjectsResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "items", Type: &schema.ArrayType{ElementType: itemType}},
+			},
+			Properties: []*schema.Property{
+				{Name: "processedItems", Type: &schema.ArrayType{ElementType: itemType}},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check import for nested type
+		if !strings.Contains(result, "import '../types/index_item_config.dart';") {
+			t.Error("Expected import for item type not found")
+		}
+
+		// Check Input<List<IndexItemConfig>> for input property
+		if !strings.Contains(result, "final Input<List<IndexItemConfig>> items;") {
+			t.Error("Expected Input<List<IndexItemConfig>> property not found")
+		}
+
+		// Check Output<List<IndexItemConfig>> for output property
+		if !strings.Contains(result, "late final Output<List<IndexItemConfig>> processedItems;") {
+			t.Error("Expected Output<List<IndexItemConfig>> output property not found")
+		}
+
+		// Check deserialization uses fromPropertyMap
+		if !strings.Contains(result, "IndexItemConfig.fromPropertyMap") {
+			t.Error("Expected fromPropertyMap call in deserialization not found")
+		}
+	})
+
+	t.Run("resource with map of objects", func(t *testing.T) {
+		valueType := &schema.ObjectType{Token: "test:index:ValueConfig"}
+
+		resource := &schema.Resource{
+			Token:       "test:index:MapOfObjectsResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "configs", Type: &schema.MapType{ElementType: valueType}},
+			},
+			Properties: []*schema.Property{
+				{Name: "resolvedConfigs", Type: &schema.MapType{ElementType: valueType}},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check import for nested type
+		if !strings.Contains(result, "import '../types/index_value_config.dart';") {
+			t.Error("Expected import for value type not found")
+		}
+
+		// Check Input<Map<String, IndexValueConfig>> for input property
+		if !strings.Contains(result, "final Input<Map<String, IndexValueConfig>> configs;") {
+			t.Error("Expected Input<Map<String, IndexValueConfig>> property not found")
+		}
+
+		// Check Output<Map<String, IndexValueConfig>> for output property
+		if !strings.Contains(result, "late final Output<Map<String, IndexValueConfig>> resolvedConfigs;") {
+			t.Error("Expected Output<Map<String, IndexValueConfig>> output property not found")
+		}
+
+		// Check deserialization uses Map.fromEntries and fromPropertyMap
+		if !strings.Contains(result, "Map.fromEntries") {
+			t.Error("Expected Map.fromEntries in deserialization not found")
+		}
+		if !strings.Contains(result, "IndexValueConfig.fromPropertyMap") {
+			t.Error("Expected fromPropertyMap call in deserialization not found")
+		}
+	})
+
+	t.Run("resource with deeply nested types", func(t *testing.T) {
+		innerType := &schema.ObjectType{Token: "test:index:InnerType"}
+
+		resource := &schema.Resource{
+			Token:       "test:index:DeeplyNestedResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "nestedLists", Type: &schema.ArrayType{
+					ElementType: &schema.ArrayType{ElementType: innerType},
+				}},
+				{Name: "mapOfLists", Type: &schema.MapType{
+					ElementType: &schema.ArrayType{ElementType: schema.StringType},
+				}},
+			},
+			Properties: []*schema.Property{
+				{Name: "id", Type: schema.StringType},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check nested list type
+		if !strings.Contains(result, "final Input<List<List<IndexInnerType>>> nestedLists;") {
+			t.Error("Expected Input<List<List<IndexInnerType>>> property not found")
+		}
+
+		// Check map of lists type
+		if !strings.Contains(result, "final Input<Map<String, List<String>>> mapOfLists;") {
+			t.Error("Expected Input<Map<String, List<String>>> property not found")
+		}
+	})
+}
+
+func TestGenerateResourceWithReservedNames(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "test",
+	}
+
+	t.Run("resource with all reserved property names", func(t *testing.T) {
+		resource := &schema.Resource{
+			Token:       "test:index:ReservedNamesResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "inputs", Type: schema.StringType},
+				{Name: "hashCode", Type: schema.StringType}, // reserved in both objectReservedNames and resourceReservedNames
+				{Name: "type", Type: schema.StringType},
+			},
+			Properties: []*schema.Property{
+				{Name: "urn", Type: schema.StringType},
+				{Name: "id", Type: schema.StringType},
+				{Name: "processOutputs", Type: schema.StringType},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check that reserved names are suffixed with "Value" in output properties
+		if !strings.Contains(result, "late final Output<String> urnValue;") {
+			t.Error("Expected urnValue output property not found")
+		}
+		if !strings.Contains(result, "late final Output<String> idValue;") {
+			t.Error("Expected idValue output property not found")
+		}
+		if !strings.Contains(result, "late final Output<String> processOutputsValue;") {
+			t.Error("Expected processOutputsValue output property not found")
+		}
+
+		// Check inputs getter still maps to original names (property keys use original names,
+		// but args property access uses potentially suffixed names)
+		if !strings.Contains(result, "'inputs': _args.inputs,") {
+			t.Error("Expected 'inputs' key in inputs getter not found")
+		}
+		// hashCode is in objectReservedNames, so it becomes hashCodeValue in Args class
+		if !strings.Contains(result, "'hashCode': _args.hashCodeValue,") {
+			t.Error("Expected 'hashCode' key in inputs getter not found")
+		}
+		// type is in resourceReservedNames but NOT objectReservedNames, so args uses "type"
+		if !strings.Contains(result, "'type': _args.type,") {
+			t.Error("Expected 'type' key in inputs getter not found")
+		}
+	})
+
+	t.Run("resource with dart reserved keywords as property names", func(t *testing.T) {
+		resource := &schema.Resource{
+			Token:       "test:index:KeywordsResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "class", Type: schema.StringType},
+				{Name: "switch", Type: schema.StringType},
+				{Name: "default", Type: schema.BoolType},
+			},
+			Properties: []*schema.Property{
+				{Name: "return", Type: schema.StringType},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check that Dart reserved keywords are escaped with underscore
+		if !strings.Contains(result, "final Input<String> class_;") {
+			t.Error("Expected class_ property in Args not found")
+		}
+		if !strings.Contains(result, "final Input<String> switch_;") {
+			t.Error("Expected switch_ property in Args not found")
+		}
+		if !strings.Contains(result, "final Input<bool> default_;") {
+			t.Error("Expected default_ property in Args not found")
+		}
+		if !strings.Contains(result, "late final Output<String> return_;") {
+			t.Error("Expected return_ output property not found")
+		}
+	})
+}
+
+func TestGenerateResourceWithUnionTypes(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "test",
+	}
+
+	t.Run("resource with union type properties", func(t *testing.T) {
+		resource := &schema.Resource{
+			Token:       "test:index:UnionResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "stringOrInt", Type: &schema.UnionType{
+					ElementTypes: []schema.Type{schema.StringType, schema.IntType},
+				}},
+			},
+			Properties: []*schema.Property{
+				{Name: "result", Type: &schema.UnionType{
+					ElementTypes: []schema.Type{schema.StringType, schema.IntType},
+				}},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Union types without specific handling become Object
+		if !strings.Contains(result, "final Input<Object> stringOrInt;") {
+			t.Error("Expected Input<Object> for union type property not found")
+		}
+		if !strings.Contains(result, "late final Output<Object> result;") {
+			t.Error("Expected Output<Object> for union type output property not found")
+		}
+	})
+
+	t.Run("resource with nullable union type", func(t *testing.T) {
+		// A union with an optional type collapses to the non-optional type
+		resource := &schema.Resource{
+			Token:       "test:index:NullableUnionResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "nullableString", Type: &schema.UnionType{
+					ElementTypes: []schema.Type{
+						schema.StringType,
+						&schema.OptionalType{ElementType: schema.StringType},
+					},
+				}},
+			},
+			Properties: []*schema.Property{
+				{Name: "id", Type: schema.StringType},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Union with optional collapses to base type
+		if !strings.Contains(result, "final Input<String> nullableString;") {
+			t.Error("Expected Input<String> for nullable union type property not found")
+		}
+	})
+}
+
+func TestGenerateOutputPropertyDeserializationExtended(t *testing.T) {
+	t.Run("object type output", func(t *testing.T) {
+		objectType := &schema.ObjectType{Token: "test:index:ConfigType"}
+		prop := &schema.Property{
+			Name: "config",
+			Type: objectType,
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "config")
+
+		if !strings.Contains(result, "config = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		if !strings.Contains(result, "IndexConfigType.fromPropertyMap") {
+			t.Error("Expected fromPropertyMap call not found")
+		}
+		if !strings.Contains(result, "PropertyDeserializer.deserializeStruct") {
+			t.Error("Expected PropertyDeserializer.deserializeStruct not found")
+		}
+	})
+
+	t.Run("enum type output", func(t *testing.T) {
+		enumType := &schema.EnumType{
+			Token:       "test:index:StatusEnum",
+			ElementType: schema.StringType,
+		}
+		prop := &schema.Property{
+			Name: "status",
+			Type: enumType,
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "status")
+
+		if !strings.Contains(result, "status = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		if !strings.Contains(result, "IndexStatusEnum.fromValue") {
+			t.Error("Expected fromValue call not found")
+		}
+		if !strings.Contains(result, "stringValue") {
+			t.Error("Expected stringValue accessor not found")
+		}
+	})
+
+	t.Run("optional object type output", func(t *testing.T) {
+		objectType := &schema.ObjectType{Token: "test:index:OptionalConfig"}
+		prop := &schema.Property{
+			Name: "optConfig",
+			Type: &schema.OptionalType{ElementType: objectType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "optConfig")
+
+		if !strings.Contains(result, "optConfig = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		// Optional should have null check
+		if !strings.Contains(result, "!= null ?") {
+			t.Error("Expected null check for optional object not found")
+		}
+		if !strings.Contains(result, ": null") {
+			t.Error("Expected null fallback for optional object not found")
+		}
+	})
+
+	t.Run("optional enum type output", func(t *testing.T) {
+		enumType := &schema.EnumType{
+			Token:       "test:index:OptionalStatusEnum",
+			ElementType: schema.StringType,
+		}
+		prop := &schema.Property{
+			Name: "optStatus",
+			Type: &schema.OptionalType{ElementType: enumType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "optStatus")
+
+		if !strings.Contains(result, "optStatus = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		// Optional enum should have null check
+		if !strings.Contains(result, "!= null ?") {
+			t.Error("Expected null check for optional enum not found")
+		}
+	})
+
+	t.Run("array of int output", func(t *testing.T) {
+		prop := &schema.Property{
+			Name: "numbers",
+			Type: &schema.ArrayType{ElementType: schema.IntType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "numbers")
+
+		if !strings.Contains(result, "numbers = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		if !strings.Contains(result, "v.numberValue.toInt()") {
+			t.Error("Expected toInt() conversion in list mapping not found")
+		}
+	})
+
+	t.Run("array of bool output", func(t *testing.T) {
+		prop := &schema.Property{
+			Name: "flags",
+			Type: &schema.ArrayType{ElementType: schema.BoolType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "flags")
+
+		if !strings.Contains(result, "flags = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		if !strings.Contains(result, "v.boolValue") {
+			t.Error("Expected boolValue in list mapping not found")
+		}
+	})
+
+	t.Run("map of int output", func(t *testing.T) {
+		prop := &schema.Property{
+			Name: "counts",
+			Type: &schema.MapType{ElementType: schema.IntType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "counts")
+
+		if !strings.Contains(result, "counts = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		if !strings.Contains(result, "e.value.numberValue.toInt()") {
+			t.Error("Expected toInt() conversion in map entry not found")
+		}
+	})
+
+	t.Run("map of bool output", func(t *testing.T) {
+		prop := &schema.Property{
+			Name: "switches",
+			Type: &schema.MapType{ElementType: schema.BoolType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "switches")
+
+		if !strings.Contains(result, "switches = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		if !strings.Contains(result, "e.value.boolValue") {
+			t.Error("Expected boolValue in map entry not found")
+		}
+	})
+
+	t.Run("array of objects output", func(t *testing.T) {
+		objectType := &schema.ObjectType{Token: "test:index:ListItem"}
+		prop := &schema.Property{
+			Name: "items",
+			Type: &schema.ArrayType{ElementType: objectType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "items")
+
+		if !strings.Contains(result, "items = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		if !strings.Contains(result, "IndexListItem.fromPropertyMap") {
+			t.Error("Expected fromPropertyMap in list mapping not found")
+		}
+	})
+
+	t.Run("map of objects output", func(t *testing.T) {
+		objectType := &schema.ObjectType{Token: "test:index:MapValue"}
+		prop := &schema.Property{
+			Name: "values",
+			Type: &schema.MapType{ElementType: objectType},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "values")
+
+		if !strings.Contains(result, "values = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		if !strings.Contains(result, "IndexMapValue.fromPropertyMap") {
+			t.Error("Expected fromPropertyMap in map entry not found")
+		}
+	})
+
+	t.Run("optional array output", func(t *testing.T) {
+		prop := &schema.Property{
+			Name: "optionalItems",
+			Type: &schema.OptionalType{
+				ElementType: &schema.ArrayType{ElementType: schema.StringType},
+			},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "optionalItems")
+
+		if !strings.Contains(result, "optionalItems = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		// Optional array should use containsKey check
+		if !strings.Contains(result, "containsKey('optionalItems')") {
+			t.Error("Expected containsKey check for optional array not found")
+		}
+		if !strings.Contains(result, ": null") {
+			t.Error("Expected null fallback for optional array not found")
+		}
+	})
+
+	t.Run("optional map output", func(t *testing.T) {
+		prop := &schema.Property{
+			Name: "optionalTags",
+			Type: &schema.OptionalType{
+				ElementType: &schema.MapType{ElementType: schema.StringType},
+			},
+		}
+
+		result := generateOutputPropertyDeserialization(prop, "optionalTags")
+
+		if !strings.Contains(result, "optionalTags = Output.of(") {
+			t.Error("Expected Output.of( not found")
+		}
+		// Optional map should use containsKey check
+		if !strings.Contains(result, "containsKey('optionalTags')") {
+			t.Error("Expected containsKey check for optional map not found")
+		}
+	})
+}
+
+func TestGenerateResourceMultipleEnumTypes(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "test",
+	}
+
+	t.Run("resource with multiple enum types", func(t *testing.T) {
+		statusEnum := &schema.EnumType{
+			Token:       "test:index:Status",
+			ElementType: schema.StringType,
+		}
+		priorityEnum := &schema.EnumType{
+			Token:       "test:index:Priority",
+			ElementType: schema.IntType,
+		}
+
+		resource := &schema.Resource{
+			Token:       "test:index:MultiEnumResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "status", Type: statusEnum},
+				{Name: "priority", Type: priorityEnum},
+			},
+			Properties: []*schema.Property{
+				{Name: "currentStatus", Type: statusEnum},
+				{Name: "currentPriority", Type: priorityEnum},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check imports for both enum types
+		if !strings.Contains(result, "import '../enums/index_status.dart';") {
+			t.Error("Expected import for Status enum not found")
+		}
+		if !strings.Contains(result, "import '../enums/index_priority.dart';") {
+			t.Error("Expected import for Priority enum not found")
+		}
+
+		// Check input properties
+		if !strings.Contains(result, "final Input<IndexStatus> status;") {
+			t.Error("Expected Input<IndexStatus> property not found")
+		}
+		if !strings.Contains(result, "final Input<IndexPriority> priority;") {
+			t.Error("Expected Input<IndexPriority> property not found")
+		}
+
+		// Check output properties
+		if !strings.Contains(result, "late final Output<IndexStatus> currentStatus;") {
+			t.Error("Expected Output<IndexStatus> output property not found")
+		}
+		if !strings.Contains(result, "late final Output<IndexPriority> currentPriority;") {
+			t.Error("Expected Output<IndexPriority> output property not found")
+		}
+	})
+}
+
+func TestGenerateResourceWithMultilineComments(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "test",
+	}
+
+	t.Run("resource with multiline documentation", func(t *testing.T) {
+		resource := &schema.Resource{
+			Token: "test:index:DocumentedResource",
+			Comment: `A resource with detailed documentation.
+
+This resource does several things:
+- First thing
+- Second thing
+- Third thing
+
+Use it carefully.`,
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{
+					Name: "config",
+					Type: schema.StringType,
+					Comment: `The configuration string.
+
+It must be a valid JSON string.`,
+				},
+			},
+			Properties: []*schema.Property{
+				{Name: "id", Type: schema.StringType},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check that multiline comments are properly formatted
+		if !strings.Contains(result, "/// A resource with detailed documentation.") {
+			t.Error("Expected first line of resource documentation not found")
+		}
+		if !strings.Contains(result, "/// - First thing") {
+			t.Error("Expected bullet point in documentation not found")
+		}
+		if !strings.Contains(result, "/// Use it carefully.") {
+			t.Error("Expected last line of resource documentation not found")
+		}
+		if !strings.Contains(result, "/// The configuration string.") {
+			t.Error("Expected property documentation not found")
+		}
+	})
+}
+
+func TestGenerateResourceWithOptionalOutputProperties(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "test",
+	}
+
+	t.Run("resource with optional output properties", func(t *testing.T) {
+		resource := &schema.Resource{
+			Token:       "test:index:OptionalOutputResource",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "name", Type: schema.StringType},
+			},
+			Properties: []*schema.Property{
+				{Name: "id", Type: schema.StringType},
+				{Name: "optionalArn", Type: &schema.OptionalType{ElementType: schema.StringType}},
+				{Name: "optionalCount", Type: &schema.OptionalType{ElementType: schema.IntType}},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Required output should not be nullable
+		if !strings.Contains(result, "late final Output<String> idValue;") {
+			t.Error("Expected Output<String> for required output not found")
+		}
+
+		// Optional outputs should have nullable type parameter
+		if !strings.Contains(result, "late final Output<String?> optionalArn;") {
+			t.Error("Expected Output<String?> for optional output not found")
+		}
+		if !strings.Contains(result, "late final Output<int?> optionalCount;") {
+			t.Error("Expected Output<int?> for optional int output not found")
+		}
+	})
+}
+
+func TestGenerateResourceFromDifferentModules(t *testing.T) {
+	pkg := &schema.Package{
+		Name: "gcp",
+	}
+
+	t.Run("resource with types from different modules", func(t *testing.T) {
+		computeType := &schema.ObjectType{Token: "gcp:compute:NetworkConfig"}
+		storageType := &schema.ObjectType{Token: "gcp:storage:BucketConfig"}
+
+		resource := &schema.Resource{
+			Token:       "gcp:orchestration:Pipeline",
+			IsComponent: false,
+			InputProperties: []*schema.Property{
+				{Name: "networkConfig", Type: computeType},
+				{Name: "storageConfig", Type: storageType},
+			},
+			Properties: []*schema.Property{
+				{Name: "id", Type: schema.StringType},
+			},
+		}
+
+		content, err := generateResource(pkg, resource)
+		if err != nil {
+			t.Fatalf("generateResource failed: %v", err)
+		}
+
+		result := string(content)
+
+		// Check imports use module-qualified paths
+		if !strings.Contains(result, "import '../types/compute_network_config.dart';") {
+			t.Error("Expected import for compute type not found")
+		}
+		if !strings.Contains(result, "import '../types/storage_bucket_config.dart';") {
+			t.Error("Expected import for storage type not found")
+		}
+
+		// Check property types use qualified class names
+		if !strings.Contains(result, "final Input<ComputeNetworkConfig> networkConfig;") {
+			t.Error("Expected ComputeNetworkConfig property not found")
+		}
+		if !strings.Contains(result, "final Input<StorageBucketConfig> storageConfig;") {
+			t.Error("Expected StorageBucketConfig property not found")
+		}
+	})
 }
