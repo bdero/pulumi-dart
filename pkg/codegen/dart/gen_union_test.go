@@ -413,3 +413,311 @@ func TestCollectUnionTypeImports(t *testing.T) {
 		}
 	})
 }
+
+func TestGenerateUnions(t *testing.T) {
+	t.Run("generates union files for resource properties with complex unions", func(t *testing.T) {
+		pkg := &schema.Package{
+			Name: "test",
+			Resources: []*schema.Resource{
+				{
+					Token: "test:index:MyResource",
+					InputProperties: []*schema.Property{
+						{
+							Name: "config",
+							Type: &schema.UnionType{
+								ElementTypes: []schema.Type{
+									schema.StringType,
+									schema.IntType,
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		g := NewGenerator(pkg, GeneratorOptions{})
+		files, infos, err := g.generateUnions()
+		if err != nil {
+			t.Fatalf("generateUnions failed: %v", err)
+		}
+
+		if len(files) != 1 {
+			t.Errorf("Expected 1 union file, got %d", len(files))
+		}
+
+		if len(infos) != 1 {
+			t.Errorf("Expected 1 union info, got %d", len(infos))
+		}
+
+		// Check the generated file content
+		for path, content := range files {
+			if !strings.Contains(path, "unions") {
+				t.Errorf("Expected path to contain 'unions', got %s", path)
+			}
+			if !strings.Contains(string(content), "sealed class StringOrInt") {
+				t.Errorf("Expected sealed class declaration in content")
+			}
+		}
+	})
+
+	t.Run("generates union files for function inputs with complex unions", func(t *testing.T) {
+		pkg := &schema.Package{
+			Name: "test",
+			Functions: []*schema.Function{
+				{
+					Token: "test:index:myFunction",
+					Inputs: &schema.ObjectType{
+						Properties: []*schema.Property{
+							{
+								Name: "value",
+								Type: &schema.UnionType{
+									ElementTypes: []schema.Type{
+										schema.BoolType,
+										schema.NumberType,
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		g := NewGenerator(pkg, GeneratorOptions{})
+		files, infos, err := g.generateUnions()
+		if err != nil {
+			t.Fatalf("generateUnions failed: %v", err)
+		}
+
+		if len(files) != 1 {
+			t.Errorf("Expected 1 union file, got %d", len(files))
+		}
+
+		if len(infos) != 1 {
+			t.Errorf("Expected 1 union info, got %d", len(infos))
+		}
+	})
+
+	t.Run("generates union files for type properties with complex unions", func(t *testing.T) {
+		objectType := &schema.ObjectType{
+			Token: "test:index:MyType",
+			Properties: []*schema.Property{
+				{
+					Name: "field",
+					Type: &schema.UnionType{
+						ElementTypes: []schema.Type{
+							schema.StringType,
+							&schema.ArrayType{ElementType: schema.StringType},
+						},
+					},
+				},
+			},
+		}
+
+		pkg := &schema.Package{
+			Name:  "test",
+			Types: []schema.Type{objectType},
+		}
+
+		g := NewGenerator(pkg, GeneratorOptions{})
+		files, infos, err := g.generateUnions()
+		if err != nil {
+			t.Fatalf("generateUnions failed: %v", err)
+		}
+
+		if len(files) != 1 {
+			t.Errorf("Expected 1 union file, got %d", len(files))
+		}
+
+		if len(infos) != 1 {
+			t.Errorf("Expected 1 union info, got %d", len(infos))
+		}
+	})
+
+	t.Run("deduplicates identical union types", func(t *testing.T) {
+		unionType := &schema.UnionType{
+			ElementTypes: []schema.Type{
+				schema.StringType,
+				schema.IntType,
+			},
+		}
+
+		pkg := &schema.Package{
+			Name: "test",
+			Resources: []*schema.Resource{
+				{
+					Token: "test:index:Resource1",
+					InputProperties: []*schema.Property{
+						{Name: "prop1", Type: unionType},
+					},
+				},
+				{
+					Token: "test:index:Resource2",
+					InputProperties: []*schema.Property{
+						{Name: "prop2", Type: unionType},
+					},
+				},
+			},
+		}
+
+		g := NewGenerator(pkg, GeneratorOptions{})
+		files, _, err := g.generateUnions()
+		if err != nil {
+			t.Fatalf("generateUnions failed: %v", err)
+		}
+
+		if len(files) != 1 {
+			t.Errorf("Expected 1 deduplicated union file, got %d", len(files))
+		}
+	})
+
+	t.Run("skips non-complex unions", func(t *testing.T) {
+		pkg := &schema.Package{
+			Name: "test",
+			Resources: []*schema.Resource{
+				{
+					Token: "test:index:MyResource",
+					InputProperties: []*schema.Property{
+						{
+							Name: "optionalString",
+							Type: &schema.UnionType{
+								ElementTypes: []schema.Type{
+									schema.StringType,
+									&schema.OptionalType{ElementType: schema.StringType},
+								},
+							},
+						},
+					},
+				},
+			},
+		}
+
+		g := NewGenerator(pkg, GeneratorOptions{})
+		files, infos, err := g.generateUnions()
+		if err != nil {
+			t.Fatalf("generateUnions failed: %v", err)
+		}
+
+		if len(files) != 0 {
+			t.Errorf("Expected 0 union files for non-complex union, got %d", len(files))
+		}
+
+		if len(infos) != 0 {
+			t.Errorf("Expected 0 union infos for non-complex union, got %d", len(infos))
+		}
+	})
+}
+
+func TestUnionTokenToModulePath(t *testing.T) {
+	tests := []struct {
+		name     string
+		token    string
+		expected string
+	}{
+		{
+			name:     "string and int union",
+			token:    "union:String|Int",
+			expected: "string_or_int",
+		},
+		{
+			name:     "three type union",
+			token:    "union:String|Int|Bool",
+			expected: "string_or_int_or_bool",
+		},
+		{
+			name:     "with object type",
+			token:    "union:String|MyType",
+			expected: "string_or_my_type",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := unionTokenToModulePath(tt.token)
+			if result != tt.expected {
+				t.Errorf("unionTokenToModulePath(%q) = %q, want %q", tt.token, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGenerateUnionToken(t *testing.T) {
+	tests := []struct {
+		name     string
+		union    *schema.UnionType
+		expected string
+	}{
+		{
+			name: "string and int",
+			union: &schema.UnionType{
+				ElementTypes: []schema.Type{schema.StringType, schema.IntType},
+			},
+			expected: "union:String|Int",
+		},
+		{
+			name: "excludes optional types",
+			union: &schema.UnionType{
+				ElementTypes: []schema.Type{
+					schema.StringType,
+					&schema.OptionalType{ElementType: schema.IntType},
+				},
+			},
+			expected: "union:String",
+		},
+		{
+			name: "with object type",
+			union: &schema.UnionType{
+				ElementTypes: []schema.Type{
+					schema.StringType,
+					&schema.ObjectType{Token: "test:index:MyType"},
+				},
+			},
+			expected: "union:String|MyType",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := generateUnionToken(tt.union)
+			if result != tt.expected {
+				t.Errorf("generateUnionToken(%v) = %q, want %q", tt.union, result, tt.expected)
+			}
+		})
+	}
+}
+
+func TestGenerateMainLibraryWithUnions(t *testing.T) {
+	t.Run("includes union exports", func(t *testing.T) {
+		pkg := &schema.Package{
+			Name: "test",
+		}
+
+		unionInfos := []*UnionTypeInfo{
+			{
+				Name:  "StringOrInt",
+				Token: "union:String|Int",
+				ElementTypes: []schema.Type{
+					schema.StringType,
+					schema.IntType,
+				},
+			},
+		}
+
+		g := NewGenerator(pkg, GeneratorOptions{})
+		content, err := g.generateMainLibraryWithUnions(unionInfos)
+		if err != nil {
+			t.Fatalf("generateMainLibraryWithUnions failed: %v", err)
+		}
+
+		result := string(content)
+
+		if !strings.Contains(result, "// Unions") {
+			t.Error("Expected Unions section header not found")
+		}
+
+		if !strings.Contains(result, "export 'src/unions/string_or_int.dart';") {
+			t.Error("Expected union export not found")
+		}
+	})
+}

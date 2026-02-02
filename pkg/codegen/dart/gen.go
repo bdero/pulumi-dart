@@ -108,6 +108,24 @@ func (g *Generator) Generate() (map[string][]byte, error) {
 		files[path] = content
 	}
 
+	// Generate unions (sealed classes for complex union types)
+	unionFiles, unionInfos, err := g.generateUnions()
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate unions: %w", err)
+	}
+	for path, content := range unionFiles {
+		files[path] = content
+	}
+
+	// Re-generate main library to include union exports
+	if len(unionInfos) > 0 {
+		mainLib, err = g.generateMainLibraryWithUnions(unionInfos)
+		if err != nil {
+			return nil, fmt.Errorf("failed to generate main library with unions: %w", err)
+		}
+		files[filepath.Join("lib", g.packageName()+".dart")] = mainLib
+	}
+
 	return files, nil
 }
 
@@ -358,4 +376,220 @@ func (g *Generator) generateEnums() (map[string][]byte, error) {
 	}
 
 	return files, nil
+}
+
+// generateUnions generates Dart sealed classes for complex union types.
+// Returns the generated files and the list of union type infos for export generation.
+func (g *Generator) generateUnions() (map[string][]byte, []*UnionTypeInfo, error) {
+	files := make(map[string][]byte)
+	unionsSeen := make(map[string]*UnionTypeInfo)
+
+	// Collect complex unions from all types
+	for _, typ := range g.pkg.Types {
+		if objectType, ok := typ.(*schema.ObjectType); ok {
+			for _, prop := range objectType.Properties {
+				g.collectComplexUnions(prop.Type, unionsSeen)
+			}
+		}
+	}
+
+	// Collect complex unions from resources
+	for _, resource := range g.pkg.Resources {
+		for _, prop := range resource.InputProperties {
+			g.collectComplexUnions(prop.Type, unionsSeen)
+		}
+		for _, prop := range resource.Properties {
+			g.collectComplexUnions(prop.Type, unionsSeen)
+		}
+	}
+
+	// Collect complex unions from functions
+	for _, function := range g.pkg.Functions {
+		// Skip provider-level methods
+		if strings.HasPrefix(function.Token, "pulumi:providers:") {
+			continue
+		}
+		if function.Inputs != nil {
+			for _, prop := range function.Inputs.Properties {
+				g.collectComplexUnions(prop.Type, unionsSeen)
+			}
+		}
+		if function.ReturnType != nil {
+			g.collectComplexUnions(function.ReturnType, unionsSeen)
+		}
+	}
+
+	// Generate files for each unique union type
+	var unionInfos []*UnionTypeInfo
+	for _, info := range unionsSeen {
+		// Skip nil entries (used for object loop detection)
+		if info == nil {
+			continue
+		}
+		content, err := generateUnionType(g.pkg, info)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to generate union %s: %w", info.Name, err)
+		}
+
+		name := unionTokenToModulePath(info.Token)
+		if name != "" {
+			files[filepath.Join("lib", "src", "unions", name+".dart")] = content
+			unionInfos = append(unionInfos, info)
+		}
+	}
+
+	return files, unionInfos, nil
+}
+
+// collectComplexUnions recursively finds complex union types within a schema type.
+func (g *Generator) collectComplexUnions(t schema.Type, seen map[string]*UnionTypeInfo) {
+	switch tt := t.(type) {
+	case *schema.ArrayType:
+		g.collectComplexUnions(tt.ElementType, seen)
+	case *schema.MapType:
+		g.collectComplexUnions(tt.ElementType, seen)
+	case *schema.ObjectType:
+		// Recursively check properties (but avoid infinite loops)
+		if _, exists := seen["obj:"+tt.Token]; !exists {
+			seen["obj:"+tt.Token] = nil // Mark as visited
+			for _, prop := range tt.Properties {
+				g.collectComplexUnions(prop.Type, seen)
+			}
+		}
+	case *schema.UnionType:
+		if isComplexUnion(tt) {
+			token := generateUnionToken(tt)
+			if _, exists := seen[token]; !exists {
+				info := &UnionTypeInfo{
+					Name:         generateUnionTypeName(tt),
+					ElementTypes: getUnionNonOptionalTypes(tt),
+					Token:        token,
+				}
+				seen[token] = info
+			}
+		}
+		// Also check element types for nested unions
+		for _, elem := range tt.ElementTypes {
+			g.collectComplexUnions(elem, seen)
+		}
+	case *schema.InputType:
+		g.collectComplexUnions(tt.ElementType, seen)
+	case *schema.OptionalType:
+		g.collectComplexUnions(tt.ElementType, seen)
+	}
+}
+
+// getUnionNonOptionalTypes extracts non-optional types from a union.
+func getUnionNonOptionalTypes(unionType *schema.UnionType) []schema.Type {
+	var types []schema.Type
+	for _, elem := range unionType.ElementTypes {
+		if _, isOptional := elem.(*schema.OptionalType); !isOptional {
+			types = append(types, elem)
+		}
+	}
+	return types
+}
+
+// generateUnionToken creates a unique token for a union type based on its element types.
+func generateUnionToken(unionType *schema.UnionType) string {
+	var names []string
+	for i, elem := range unionType.ElementTypes {
+		if _, isOptional := elem.(*schema.OptionalType); !isOptional {
+			names = append(names, getUnionVariantName(elem, i))
+		}
+	}
+	return "union:" + strings.Join(names, "|")
+}
+
+// unionTokenToModulePath converts a union token to a file path.
+func unionTokenToModulePath(token string) string {
+	// Remove the "union:" prefix
+	name := strings.TrimPrefix(token, "union:")
+	// Split by | and convert each part to snake_case
+	parts := strings.Split(name, "|")
+	for i, part := range parts {
+		parts[i] = ToSnakeCase(part)
+	}
+	// Join with _or_
+	name = strings.Join(parts, "_or_")
+	return truncateFilename(name)
+}
+
+// generateMainLibraryWithUnions generates the main library with union exports included.
+func (g *Generator) generateMainLibraryWithUnions(unionInfos []*UnionTypeInfo) ([]byte, error) {
+	var buf bytes.Buffer
+
+	buf.WriteString(fmt.Sprintf("/// Pulumi SDK for the %s provider.\n", g.pkg.Name))
+	buf.WriteString("///\n")
+	if g.pkg.Description != "" {
+		buf.WriteString(fmt.Sprintf("/// %s\n", g.pkg.Description))
+	}
+	buf.WriteString(fmt.Sprintf("library %s;\n\n", g.packageName()))
+
+	// Export all generated modules
+	exportedTypes := make(map[string]bool)
+	exportedEnums := make(map[string]bool)
+	exportedUnions := make(map[string]bool)
+
+	buf.WriteString("// Types\n")
+	for _, typ := range g.pkg.Types {
+		objectType, isObject := typ.(*schema.ObjectType)
+		if !isObject {
+			continue
+		}
+		if !strings.Contains(objectType.Token, ":") {
+			continue
+		}
+		name := tokenToModulePath(objectType.Token)
+		if name != "" && !exportedTypes[name] {
+			exportedTypes[name] = true
+			buf.WriteString(fmt.Sprintf("export 'src/types/%s.dart';\n", name))
+		}
+	}
+
+	buf.WriteString("\n// Enums\n")
+	for _, typ := range g.pkg.Types {
+		enumType, isEnum := typ.(*schema.EnumType)
+		if !isEnum {
+			continue
+		}
+		if !strings.Contains(enumType.Token, ":") {
+			continue
+		}
+		name := tokenToModulePath(enumType.Token)
+		if name != "" && !exportedEnums[name] {
+			exportedEnums[name] = true
+			buf.WriteString(fmt.Sprintf("export 'src/enums/%s.dart';\n", name))
+		}
+	}
+
+	buf.WriteString("\n// Unions\n")
+	for _, info := range unionInfos {
+		name := unionTokenToModulePath(info.Token)
+		if name != "" && !exportedUnions[name] {
+			exportedUnions[name] = true
+			buf.WriteString(fmt.Sprintf("export 'src/unions/%s.dart';\n", name))
+		}
+	}
+
+	buf.WriteString("\n// Resources\n")
+	for _, resource := range g.pkg.Resources {
+		name := tokenToModulePath(resource.Token)
+		if name != "" {
+			buf.WriteString(fmt.Sprintf("export 'src/resources/%s.dart';\n", name))
+		}
+	}
+
+	buf.WriteString("\n// Functions\n")
+	for _, function := range g.pkg.Functions {
+		if strings.HasPrefix(function.Token, "pulumi:providers:") {
+			continue
+		}
+		name := tokenToModulePath(function.Token)
+		if name != "" {
+			buf.WriteString(fmt.Sprintf("export 'src/functions/%s.dart';\n", name))
+		}
+	}
+
+	return buf.Bytes(), nil
 }
