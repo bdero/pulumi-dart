@@ -279,14 +279,14 @@ func TestGenerateResource(t *testing.T) {
 			t.Error("Expected import for nested type not found")
 		}
 
-		// Check Input<NestedType> for input property
-		if !strings.Contains(result, "final Input<NestedType> config;") {
-			t.Error("Expected Input<NestedType> property not found")
+		// Check Input<IndexNestedType> for input property
+		if !strings.Contains(result, "final Input<IndexNestedType> config;") {
+			t.Error("Expected Input<IndexNestedType> property not found")
 		}
 
-		// Check Output<NestedType> for output property
-		if !strings.Contains(result, "late final Output<NestedType> result;") {
-			t.Error("Expected Output<NestedType> output property not found")
+		// Check Output<IndexNestedType> for output property
+		if !strings.Contains(result, "late final Output<IndexNestedType> result;") {
+			t.Error("Expected Output<IndexNestedType> output property not found")
 		}
 	})
 
@@ -319,14 +319,14 @@ func TestGenerateResource(t *testing.T) {
 			t.Error("Expected import for enum type not found")
 		}
 
-		// Check Input<MyEnum> for input property
-		if !strings.Contains(result, "final Input<MyEnum> status;") {
-			t.Error("Expected Input<MyEnum> property not found")
+		// Check Input<IndexMyEnum> for input property
+		if !strings.Contains(result, "final Input<IndexMyEnum> status;") {
+			t.Error("Expected Input<IndexMyEnum> property not found")
 		}
 
-		// Check Output<MyEnum> for output property
-		if !strings.Contains(result, "late final Output<MyEnum> currentStatus;") {
-			t.Error("Expected Output<MyEnum> output property not found")
+		// Check Output<IndexMyEnum> for output property
+		if !strings.Contains(result, "late final Output<IndexMyEnum> currentStatus;") {
+			t.Error("Expected Output<IndexMyEnum> output property not found")
 		}
 	})
 }

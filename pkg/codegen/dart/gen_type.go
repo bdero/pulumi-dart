@@ -12,7 +12,7 @@ import (
 func generateType(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, error) {
 	var buf bytes.Buffer
 
-	className := tokenToClassName(objectType.Token)
+	className := tokenToQualifiedClassName(objectType.Token)
 
 	// File header
 	buf.WriteString(fmt.Sprintf("/// Generated type class for %s.\n", objectType.Token))
@@ -130,9 +130,9 @@ func generateType(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, e
 func generateTypeArgs(pkg *schema.Package, objectType *schema.ObjectType) ([]byte, error) {
 	var buf bytes.Buffer
 
-	className := tokenToClassName(objectType.Token) + "Args"
+	className := tokenToQualifiedClassName(objectType.Token) + "Args"
 
-	buf.WriteString(fmt.Sprintf("/// Input arguments for %s.\n", tokenToClassName(objectType.Token)))
+	buf.WriteString(fmt.Sprintf("/// Input arguments for %s.\n", tokenToQualifiedClassName(objectType.Token)))
 	buf.WriteString(fmt.Sprintf("class %s {\n", className))
 
 	// Separate required and optional properties

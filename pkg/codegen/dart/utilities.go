@@ -203,6 +203,8 @@ func toPascalCase(s string) string {
 
 // tokenToClassName extracts the class name from a Pulumi token.
 // Tokens are in the format "pkg:module:Name" or "pkg:module/submodule:Name".
+// This returns just the type name without module prefix, suitable for resources
+// and functions which are less likely to have name collisions.
 func tokenToClassName(token string) string {
 	parts := strings.Split(token, ":")
 	if len(parts) < 3 {
@@ -211,6 +213,31 @@ func tokenToClassName(token string) string {
 	// The last part is the name
 	name := parts[len(parts)-1]
 	return toPascalCase(name)
+}
+
+// tokenToQualifiedClassName extracts a qualified class name from a Pulumi token.
+// Tokens are in the format "pkg:module:Name" or "pkg:module/submodule:Name".
+// This includes the module name as a prefix to avoid collisions when the same
+// type name exists in different modules (e.g., "bigquery:AppProfile" and
+// "bigtable:AppProfile" become "BigqueryAppProfile" and "BigtableAppProfile").
+func tokenToQualifiedClassName(token string) string {
+	parts := strings.Split(token, ":")
+	if len(parts) < 3 {
+		return toPascalCase(token)
+	}
+
+	// Get the module part (second element) and the name (last element)
+	module := parts[1]
+	name := parts[len(parts)-1]
+
+	// Handle submodules (e.g., "s3/bucket" -> "s3Bucket")
+	// We take only the first part of the module path to keep names shorter
+	if idx := strings.Index(module, "/"); idx != -1 {
+		module = module[:idx]
+	}
+
+	// Combine module and name: "bigquery" + "AppProfile" -> "BigqueryAppProfile"
+	return toPascalCase(module) + toPascalCase(name)
 }
 
 // tokenToFunctionName extracts a function name from a Pulumi token.
@@ -300,10 +327,10 @@ func typeToDart(t schema.Type, unwrapInputs bool) string {
 		return "Map<String, " + elementType + ">"
 
 	case *schema.ObjectType:
-		return tokenToClassName(tt.Token)
+		return tokenToQualifiedClassName(tt.Token)
 
 	case *schema.EnumType:
-		return tokenToClassName(tt.Token)
+		return tokenToQualifiedClassName(tt.Token)
 
 	case *schema.TokenType:
 		if tt.UnderlyingType != nil {

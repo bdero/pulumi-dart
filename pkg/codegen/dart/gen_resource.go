@@ -296,13 +296,13 @@ func generatePrimitiveExtraction(t schema.Type, valueExpr string, isOptional boo
 		// The actual deserialization will depend on having proper type converters
 		switch tt := t.(type) {
 		case *schema.ObjectType:
-			className := tokenToClassName(tt.Token)
+			className := tokenToQualifiedClassName(tt.Token)
 			if isOptional {
 				return fmt.Sprintf("%s != null ? %s.fromPropertyMap(PropertyDeserializer.deserializeStruct(%s!.structValue) as Map<String, dynamic>) : null", valueExpr, className, valueExpr)
 			}
 			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(%s?.structValue ?? Struct()) as Map<String, dynamic>)", className, valueExpr)
 		case *schema.EnumType:
-			className := tokenToClassName(tt.Token)
+			className := tokenToQualifiedClassName(tt.Token)
 			if isOptional {
 				return fmt.Sprintf("%s?.stringValue != null ? %s.fromValue(%s!.stringValue) : null", valueExpr, className, valueExpr)
 			}
@@ -330,7 +330,7 @@ func generateListElementExtraction(elemType schema.Type) string {
 	default:
 		switch tt := elemType.(type) {
 		case *schema.ObjectType:
-			className := tokenToClassName(tt.Token)
+			className := tokenToQualifiedClassName(tt.Token)
 			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(v.structValue) as Map<String, dynamic>)", className)
 		default:
 			return "v.stringValue"
@@ -352,7 +352,7 @@ func generateMapValueExtraction(elemType schema.Type) string {
 	default:
 		switch tt := elemType.(type) {
 		case *schema.ObjectType:
-			className := tokenToClassName(tt.Token)
+			className := tokenToQualifiedClassName(tt.Token)
 			return fmt.Sprintf("%s.fromPropertyMap(PropertyDeserializer.deserializeStruct(e.value.structValue) as Map<String, dynamic>)", className)
 		default:
 			return "e.value.stringValue"

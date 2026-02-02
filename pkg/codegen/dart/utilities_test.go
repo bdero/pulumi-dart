@@ -108,6 +108,36 @@ func TestTokenToClassName(t *testing.T) {
 	}
 }
 
+func TestTokenToQualifiedClassName(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		// Basic cases
+		{"aws:s3/bucket:Bucket", "S3Bucket"},
+		{"aws:ec2:Instance", "Ec2Instance"},
+		{"pulumi:pulumi:Resource", "PulumiResource"},
+		{"pkg:mod:MyResource", "ModMyResource"},
+		{"pkg:mod:my_resource", "ModMyResource"},
+		{"simple", "Simple"},
+		// GCP-like collision cases
+		{"gcp:bigquery:AppProfile", "BigqueryAppProfile"},
+		{"gcp:bigtable:AppProfile", "BigtableAppProfile"},
+		// Submodule cases - should use only first part of module
+		{"gcp:compute/instance:Settings", "ComputeSettings"},
+		{"aws:s3/bucket:BucketWebsite", "S3BucketWebsite"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			result := tokenToQualifiedClassName(tt.input)
+			if result != tt.expected {
+				t.Errorf("tokenToQualifiedClassName(%q) = %q, want %q", tt.input, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestTokenToModulePath(t *testing.T) {
 	tests := []struct {
 		input    string

@@ -231,7 +231,7 @@ func TestGenerateFunction(t *testing.T) {
 		}
 
 		// Check complex parameter types
-		if !strings.Contains(result, "required Config config,") {
+		if !strings.Contains(result, "required IndexConfig config,") {
 			t.Error("Expected Config parameter not found")
 		}
 		if !strings.Contains(result, "required Map<String, String> tags,") {
@@ -277,12 +277,12 @@ func TestGenerateFunction(t *testing.T) {
 		}
 
 		// Check enum parameter type
-		if !strings.Contains(result, "required Status status,") {
+		if !strings.Contains(result, "required IndexStatus status,") {
 			t.Error("Expected Status parameter not found")
 		}
 
 		// Check enum in result
-		if !strings.Contains(result, "final Status currentStatus;") {
+		if !strings.Contains(result, "final IndexStatus currentStatus;") {
 			t.Error("Expected Status property in result not found")
 		}
 	})

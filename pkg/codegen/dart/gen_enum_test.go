@@ -30,7 +30,7 @@ func TestGenerateEnum(t *testing.T) {
 		result := string(content)
 
 		// Check enum declaration
-		if !strings.Contains(result, "enum Status {") {
+		if !strings.Contains(result, "enum IndexStatus {") {
 			t.Error("Expected enum declaration not found")
 		}
 
@@ -51,17 +51,17 @@ func TestGenerateEnum(t *testing.T) {
 		}
 
 		// Check constructor
-		if !strings.Contains(result, "const Status._(this.value);") {
+		if !strings.Contains(result, "const IndexStatus._(this.value);") {
 			t.Error("Expected constructor not found")
 		}
 
 		// Check fromValue factory
-		if !strings.Contains(result, "static Status fromValue(String value) {") {
+		if !strings.Contains(result, "static IndexStatus fromValue(String value) {") {
 			t.Error("Expected fromValue factory not found")
 		}
 
 		// Check tryFromValue factory
-		if !strings.Contains(result, "static Status? tryFromValue(String value) {") {
+		if !strings.Contains(result, "static IndexStatus? tryFromValue(String value) {") {
 			t.Error("Expected tryFromValue factory not found")
 		}
 
@@ -108,7 +108,7 @@ func TestGenerateEnum(t *testing.T) {
 		}
 
 		// Check fromValue factory with int parameter
-		if !strings.Contains(result, "static Priority fromValue(int value) {") {
+		if !strings.Contains(result, "static IndexPriority fromValue(int value) {") {
 			t.Error("Expected fromValue factory with int not found")
 		}
 	})
