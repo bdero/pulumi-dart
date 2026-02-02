@@ -1327,4 +1327,285 @@ void main() {
       expect(PropertyDeserializer.deserializeValue(value), isNull);
     });
   });
+
+  group('PropertyDeserializer error handling', () {
+    group('malformed secret signatures', () {
+      test('handles secret signature with missing value field', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.secretSig);
+        // No 'value' field
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isNull);
+      });
+
+      test('handles secret signature with null value field', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.secretSig)
+          ..fields['value'] = (Value()..nullValue = NullValue.NULL_VALUE);
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<SecretValue>());
+        expect((result as SecretValue).value, isNull);
+      });
+    });
+
+    group('malformed resource signatures', () {
+      test('handles resource signature with missing urn and id', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.resourceSig);
+        // No 'urn' or 'id' fields
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<ResourceReference>());
+        final ref = result as ResourceReference;
+        expect(ref.urn, ''); // Default empty string
+        expect(ref.id, isNull);
+      });
+
+      test('handles resource signature with only urn', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.resourceSig)
+          ..fields['urn'] = (Value()..stringValue = 'urn:test');
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<ResourceReference>());
+        final ref = result as ResourceReference;
+        expect(ref.urn, 'urn:test');
+        expect(ref.id, isNull);
+      });
+
+      test('handles resource signature with empty urn', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.resourceSig)
+          ..fields['urn'] = (Value()..stringValue = '');
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<ResourceReference>());
+        final ref = result as ResourceReference;
+        expect(ref.urn, '');
+      });
+    });
+
+    group('malformed asset signatures', () {
+      test('handles asset signature with no path, text, or uri', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.assetSig);
+        // No path, text, or uri fields
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isNull);
+      });
+
+      test('handles asset signature with empty path', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.assetSig)
+          ..fields['path'] = (Value()..stringValue = '');
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<FileAsset>());
+        expect((result as FileAsset).path, '');
+      });
+
+      test('handles asset signature with empty text', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.assetSig)
+          ..fields['text'] = (Value()..stringValue = '');
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<StringAsset>());
+        expect((result as StringAsset).text, '');
+      });
+
+      test('handles asset signature with empty uri', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.assetSig)
+          ..fields['uri'] = (Value()..stringValue = '');
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<RemoteAsset>());
+        expect((result as RemoteAsset).uri, '');
+      });
+    });
+
+    group('malformed archive signatures', () {
+      test('handles archive signature with no path, uri, or assets', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.archiveSig);
+        // No path, uri, or assets fields
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isNull);
+      });
+
+      test('handles archive signature with empty assets struct', () {
+        final assetsStruct = Struct(); // Empty
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.archiveSig)
+          ..fields['assets'] = (Value()..structValue = assetsStruct);
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<AssetArchive>());
+        expect((result as AssetArchive).assets, isEmpty);
+      });
+
+      test('handles AssetArchive with non-asset entries (ignores them)', () {
+        // Regular string value instead of asset/archive
+        final assetsStruct = Struct()
+          ..fields['invalid'] = (Value()..stringValue = 'not an asset')
+          ..fields['number'] = (Value()..numberValue = 42.0);
+
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.archiveSig)
+          ..fields['assets'] = (Value()..structValue = assetsStruct);
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<AssetArchive>());
+        // Non-asset entries are ignored
+        expect((result as AssetArchive).assets, isEmpty);
+      });
+
+      test('handles AssetArchive with mixed valid and invalid entries', () {
+        // Valid asset
+        final validAssetStruct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.assetSig)
+          ..fields['text'] = (Value()..stringValue = 'valid content');
+
+        final assetsStruct = Struct()
+          ..fields['valid.txt'] = (Value()..structValue = validAssetStruct)
+          ..fields['invalid'] = (Value()..stringValue = 'not an asset');
+
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.archiveSig)
+          ..fields['assets'] = (Value()..structValue = assetsStruct);
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<AssetArchive>());
+        final archive = result as AssetArchive;
+        // Only the valid asset is included
+        expect(archive.assets.length, 1);
+        expect(archive.assets['valid.txt'], isA<StringAsset>());
+      });
+    });
+
+    group('unknown signatures', () {
+      test('handles unknown signature as regular map', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = 'invalid-signature-hash')
+          ..fields['data'] = (Value()..stringValue = 'some data');
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        // Treated as regular map since signature is not recognized
+        expect(result, isA<Map>());
+        final map = result as Map;
+        expect(map[PropertySignatures.sigKey], 'invalid-signature-hash');
+        expect(map['data'], 'some data');
+      });
+
+      test('handles empty signature value', () {
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] = (Value()..stringValue = '');
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        // Treated as regular map
+        expect(result, isA<Map>());
+      });
+    });
+
+    group('toOutputData error handling', () {
+      test('handles unknown output signature with null value', () {
+        // Note: toOutputData always creates a "known" OutputData,
+        // but the value will be null for unknown signatures
+        final struct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.outputSig);
+        final value = Value()..structValue = struct;
+        final data = PropertyDeserializer.toOutputData<dynamic>(value);
+        // The value is null because unknown signatures return null
+        expect(data.value, isNull);
+      });
+
+      test('handles nested secrets in toOutputData', () {
+        final innerSecret = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.secretSig)
+          ..fields['value'] = (Value()..stringValue = 'secret-data');
+
+        final outerStruct = Struct()
+          ..fields['nested'] = (Value()..structValue = innerSecret);
+        final value = Value()..structValue = outerStruct;
+        final data = PropertyDeserializer.toOutputData<Map<String, dynamic>>(value);
+        expect(data.isSecret, isTrue);
+      });
+
+      test('handles deeply nested unknown values', () {
+        final unknownStruct = Struct()
+          ..fields[PropertySignatures.sigKey] =
+              (Value()..stringValue = PropertySignatures.outputSig);
+
+        final listWithUnknown = ListValue()
+          ..values.add(Value()..structValue = unknownStruct);
+
+        final value = Value()..listValue = listWithUnknown;
+        // This tests that unknown values don't crash during deserialization
+        final deserialized = PropertyDeserializer.deserializeValue(value);
+        expect(deserialized, isA<List>());
+        expect((deserialized as List).first, isA<UnknownValue>());
+      });
+    });
+
+    group('malformed nested structures', () {
+      test('handles struct with notSet value field', () {
+        final struct = Struct()
+          ..fields['field'] = Value(); // Default/notSet value
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<Map>());
+        expect((result as Map)['field'], isNull);
+      });
+
+      test('handles list with mixed types including notSet', () {
+        final listValue = ListValue()
+          ..values.addAll([
+            Value()..stringValue = 'valid',
+            Value(), // notSet
+            Value()..numberValue = 42.0,
+          ]);
+        final value = Value()..listValue = listValue;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, equals(['valid', null, 42]));
+      });
+
+      test('handles empty struct', () {
+        final struct = Struct();
+        final value = Value()..structValue = struct;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<Map>());
+        expect((result as Map), isEmpty);
+      });
+
+      test('handles empty list', () {
+        final listValue = ListValue();
+        final value = Value()..listValue = listValue;
+        final result = PropertyDeserializer.deserializeValue(value);
+        expect(result, isA<List>());
+        expect((result as List), isEmpty);
+      });
+    });
+  });
 }

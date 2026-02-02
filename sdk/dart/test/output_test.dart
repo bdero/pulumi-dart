@@ -398,4 +398,240 @@ void main() {
       expect(await combined.future, equals('Hello, World!'));
     });
   });
+
+  group('Output error handling', () {
+    group('apply with throwing transforms', () {
+      test('propagates synchronous exceptions from transform', () async {
+        final output = Output.of(5);
+        final transformed = output.apply<int>((v) {
+          throw Exception('transform failed');
+        });
+
+        expect(transformed.future, throwsA(isA<Exception>()));
+      });
+
+      test('propagates asynchronous exceptions from transform', () async {
+        final output = Output.of(5);
+        final transformed = output.apply<int>((v) async {
+          await Future.delayed(const Duration(milliseconds: 1));
+          throw Exception('async transform failed');
+        });
+
+        expect(transformed.future, throwsA(isA<Exception>()));
+      });
+
+      test('error in chained apply propagates through chain', () async {
+        final output = Output.of(5);
+        final chained = output
+            .apply((v) => v * 2)
+            .apply<int>((v) => throw Exception('middle failed'))
+            .apply((v) => v.toString());
+
+        expect(chained.future, throwsA(isA<Exception>()));
+      });
+
+      test('error in first apply prevents subsequent applies', () async {
+        var secondApplyCalled = false;
+        final output = Output.of(5);
+        final chained = output.apply<int>((v) {
+          throw Exception('first failed');
+        }).apply((v) {
+          secondApplyCalled = true;
+          return v * 2;
+        });
+
+        await expectLater(chained.future, throwsA(isA<Exception>()));
+        // The second apply is chained but won't complete successfully
+        // because the first one fails
+        expect(secondApplyCalled, isFalse);
+      });
+
+      test('transform throwing StateError propagates', () async {
+        final output = Output.of('test');
+        final transformed = output.apply<int>((v) {
+          throw StateError('invalid state');
+        });
+
+        expect(
+          transformed.future,
+          throwsA(isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            equals('invalid state'),
+          )),
+        );
+      });
+
+      test('transform throwing ArgumentError propagates', () async {
+        final output = Output.of(-5);
+        final transformed = output.apply<int>((v) {
+          if (v < 0) {
+            throw ArgumentError.value(v, 'value', 'must be non-negative');
+          }
+          return v;
+        });
+
+        expect(transformed.future, throwsA(isA<ArgumentError>()));
+      });
+    });
+
+    group('fromFuture error handling', () {
+      test('propagates future errors', () async {
+        final future = Future<String>.error(Exception('test error'));
+        final output = Output.fromFuture(future);
+
+        expect(output.future, throwsA(isA<Exception>()));
+      });
+
+      test('propagates delayed future errors', () async {
+        final future = Future<String>.delayed(
+          const Duration(milliseconds: 5),
+          () => throw Exception('delayed error'),
+        );
+        final output = Output.fromFuture(future);
+
+        expect(output.future, throwsA(isA<Exception>()));
+      });
+
+      test('error propagates through apply on errored fromFuture', () async {
+        final future = Future<int>.error(Exception('original error'));
+        final output = Output.fromFuture(future);
+        final transformed = output.apply((v) => v * 2);
+
+        expect(transformed.future, throwsA(isA<Exception>()));
+      });
+
+      test('dataFuture also propagates errors', () async {
+        final future = Future<String>.error(Exception('test error'));
+        final output = Output.fromFuture(future);
+
+        expect(output.dataFuture, throwsA(isA<Exception>()));
+      });
+    });
+
+    group('Output.all error handling', () {
+      test('propagates error from single failing output', () async {
+        final o1 = Output.of('a');
+        final o2 = Output.fromFuture(Future<String>.error(Exception('fail')));
+        final o3 = Output.of('c');
+
+        final combined = Output.all([o1, o2, o3]);
+
+        expect(combined.future, throwsA(isA<Exception>()));
+      });
+
+      test('propagates first error when multiple outputs fail', () async {
+        final o1 = Output.fromFuture(Future<String>.error(Exception('first')));
+        final o2 = Output.fromFuture(Future<String>.error(Exception('second')));
+
+        final combined = Output.all([o1, o2]);
+
+        // Should throw one of the exceptions
+        expect(combined.future, throwsA(isA<Exception>()));
+      });
+
+      test('error in dataFuture propagates through all', () async {
+        final errorOutput = Output.fromFuture(Future<String>.error(Exception('inner')));
+
+        final combined = Output.all([Output.of('a'), errorOutput]);
+
+        expect(combined.dataFuture, throwsA(isA<Exception>()));
+      });
+    });
+
+    group('Output.tuple2 error handling', () {
+      test('propagates error from first output', () async {
+        final o1 = Output.fromFuture(Future<int>.error(Exception('first failed')));
+        final o2 = Output.of('ok');
+
+        final combined = Output.tuple2(o1, o2);
+
+        expect(combined.future, throwsA(isA<Exception>()));
+      });
+
+      test('propagates error from second output', () async {
+        final o1 = Output.of(1);
+        final o2 = Output.fromFuture(Future<String>.error(Exception('second failed')));
+
+        final combined = Output.tuple2(o1, o2);
+
+        expect(combined.future, throwsA(isA<Exception>()));
+      });
+
+      test('propagates error when both outputs fail', () async {
+        final o1 = Output.fromFuture(Future<int>.error(Exception('first')));
+        final o2 = Output.fromFuture(Future<String>.error(Exception('second')));
+
+        final combined = Output.tuple2(o1, o2);
+
+        expect(combined.future, throwsA(isA<Exception>()));
+      });
+    });
+
+    group('Output.tuple3 error handling', () {
+      test('propagates error from any output', () async {
+        final o1 = Output.of(1);
+        final o2 = Output.fromFuture(Future<String>.error(Exception('middle failed')));
+        final o3 = Output.of(true);
+
+        final combined = Output.tuple3(o1, o2, o3);
+
+        expect(combined.future, throwsA(isA<Exception>()));
+      });
+
+      test('propagates error from third output', () async {
+        final o1 = Output.of(1);
+        final o2 = Output.of('ok');
+        final o3 = Output.fromFuture(Future<bool>.error(Exception('third failed')));
+
+        final combined = Output.tuple3(o1, o2, o3);
+
+        expect(combined.future, throwsA(isA<Exception>()));
+      });
+    });
+
+    group('complex error scenarios', () {
+      test('error in nested apply chain', () async {
+        final output = Output.of(1);
+        final nested = output
+            .apply((v) => Output.of(v * 2))
+            .apply((inner) => inner.apply<int>((v) => throw Exception('nested')));
+
+        // The outer apply returns an Output<Output<int>> with error
+        final result = await nested.dataFuture;
+        expect(result.isKnown, isTrue);
+        // The inner output will have the error when accessed
+        expect((result.value as Output<int>).future, throwsA(isA<Exception>()));
+      });
+
+      test('asSecret on errored output preserves error', () async {
+        final output = Output.fromFuture(Future<String>.error(Exception('secret error')));
+        final secret = output.asSecret();
+
+        expect(secret.future, throwsA(isA<Exception>()));
+      });
+
+      test('withDependencies on errored output preserves error', () async {
+        final output = Output.fromFuture(Future<String>.error(Exception('dep error')));
+        final withDeps = output.withDependencies({'urn:1'});
+
+        expect(withDeps.future, throwsA(isA<Exception>()));
+      });
+
+      test('concat with errored output propagates error', () async {
+        final hello = Output.of('Hello ');
+        final errorWorld = Output.fromFuture(Future<String>.error(Exception('world failed')));
+        final combined = hello.concat(errorWorld);
+
+        expect(combined.future, throwsA(isA<Exception>()));
+      });
+
+      test('orElse on errored nullable output propagates error', () async {
+        final output = Output<String?>.fromFuture(Future.error(Exception('null error')));
+        final withDefault = output.orElse('default');
+
+        expect(withDefault.future, throwsA(isA<Exception>()));
+      });
+    });
+  });
 }

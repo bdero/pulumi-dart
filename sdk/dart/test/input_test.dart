@@ -328,4 +328,212 @@ void main() {
       expect(input, isA<InputFuture<String>>());
     });
   });
+
+  group('Input error handling', () {
+    group('InputFuture with throwing futures', () {
+      test('toOutput propagates future error', () async {
+        final future = Future<String>.error(Exception('input future error'));
+        final input = Input.future(future);
+        final output = input.toOutput();
+
+        expect(output.future, throwsA(isA<Exception>()));
+      });
+
+      test('toOutput propagates delayed future error', () async {
+        final future = Future<String>.delayed(
+          const Duration(milliseconds: 5),
+          () => throw Exception('delayed input error'),
+        );
+        final input = Input.future(future);
+        final output = input.toOutput();
+
+        expect(output.future, throwsA(isA<Exception>()));
+      });
+    });
+
+    group('InputOutput with errored outputs', () {
+      test('toOutput propagates error from wrapped output', () async {
+        final errorOutput =
+            Output.fromFuture(Future<String>.error(Exception('output error')));
+        final input = Input.output(errorOutput);
+        final output = input.toOutput();
+
+        expect(output.future, throwsA(isA<Exception>()));
+      });
+
+      test('toOutput propagates error from output with throwing apply', () async {
+        final output = Output.of('test').apply<String>((v) {
+          throw Exception('apply error');
+        });
+        final input = Input.output(output);
+        final resultOutput = input.toOutput();
+
+        expect(resultOutput.future, throwsA(isA<Exception>()));
+      });
+    });
+
+    group('InputUtils.resolve error handling', () {
+      test('propagates error from InputFuture', () async {
+        final input = Input.future(Future<String>.error(Exception('resolve future error')));
+
+        expect(
+          InputUtils.resolve(input),
+          throwsA(isA<Exception>()),
+        );
+      });
+
+      test('propagates error from InputOutput with errored future', () async {
+        final errorOutput =
+            Output.fromFuture(Future<String>.error(Exception('resolve output error')));
+        final input = Input.output(errorOutput);
+
+        expect(
+          InputUtils.resolve(input),
+          throwsA(isA<Exception>()),
+        );
+      });
+
+      test('propagates StateError from unknown InputOutput', () async {
+        final unknownOutput = Output<String>.unknown();
+        final input = Input.output(unknownOutput);
+
+        expect(
+          InputUtils.resolve(input),
+          throwsA(isA<StateError>().having(
+            (e) => e.message,
+            'message',
+            contains('unknown'),
+          )),
+        );
+      });
+    });
+
+    group('InputUtils.isKnown error handling', () {
+      test('propagates error from InputOutput with errored dataFuture', () async {
+        final errorOutput =
+            Output.fromFuture(Future<String>.error(Exception('isKnown error')));
+        final input = Input.output(errorOutput);
+
+        expect(
+          InputUtils.isKnown(input),
+          throwsA(isA<Exception>()),
+        );
+      });
+
+      test('returns true for InputFuture regardless of future error', () async {
+        // Note: isKnown for InputFuture returns true immediately,
+        // without waiting for or checking the future's result.
+        // This tests documents that behavior.
+        final completer = Completer<String>();
+
+        final input = Input.future(completer.future);
+
+        // isKnown returns true immediately for InputFuture
+        expect(await InputUtils.isKnown(input), isTrue);
+
+        // Complete with error after the check (to avoid unhandled error)
+        completer.completeError(Exception('test'));
+
+        // Drain the error so it doesn't become unhandled
+        try {
+          await completer.future;
+        } catch (_) {
+          // Expected
+        }
+      });
+    });
+
+    group('InputUtils.map error handling', () {
+      test('propagates synchronous transform error on InputValue', () {
+        final input = Input.value(5);
+
+        // For InputValue, the transform is called synchronously during map()
+        expect(
+          () => InputUtils.map<int, int>(input, (v) {
+            throw Exception('map error');
+          }),
+          throwsA(isA<Exception>()),
+        );
+      });
+
+      test('propagates transform error on InputOutput via output', () async {
+        final input = Input.output(Output.of(5));
+        final mapped = InputUtils.map<int, int>(input, (v) {
+          throw Exception('map output error');
+        });
+
+        expect(mapped, isA<InputOutput<int>>());
+        final output = (mapped as InputOutput<int>).output;
+        expect(output.future, throwsA(isA<Exception>()));
+      });
+
+      test('propagates transform error on InputFuture via future', () async {
+        final input = Input.future(Future.value(5));
+        final mapped = InputUtils.map<int, int>(input, (v) {
+          throw Exception('map future error');
+        });
+
+        expect(mapped, isA<InputFuture<int>>());
+        final future = (mapped as InputFuture<int>).future;
+        expect(future, throwsA(isA<Exception>()));
+      });
+
+      test('error in InputFuture source propagates through map', () async {
+        final input = Input.future(Future<int>.error(Exception('source error')));
+        final mapped = InputUtils.map<int, int>(input, (v) => v * 2);
+
+        expect(mapped, isA<InputFuture<int>>());
+        final future = (mapped as InputFuture<int>).future;
+        expect(future, throwsA(isA<Exception>()));
+      });
+
+      test('error in InputOutput source propagates through map', () async {
+        final errorOutput = Output.fromFuture(Future<int>.error(Exception('output source error')));
+        final input = Input.output(errorOutput);
+        final mapped = InputUtils.map<int, int>(input, (v) => v * 2);
+
+        expect(mapped, isA<InputOutput<int>>());
+        final output = (mapped as InputOutput<int>).output;
+        expect(output.future, throwsA(isA<Exception>()));
+      });
+    });
+
+    group('complex error scenarios', () {
+      test('chained toOutput with multiple error sources', () async {
+        // First wrap in InputFuture that will error
+        final futureInput = Input.future(Future<String>.error(Exception('chain error')));
+        final output = futureInput.toOutput();
+
+        // Then apply a transform that would succeed if the value was available
+        final transformed = output.apply((v) => v.length);
+
+        expect(transformed.future, throwsA(isA<Exception>()));
+      });
+
+      test('InputOutput with unknown then accessed via resolve throws', () async {
+        final unknownOutput = Output<String>.unknown();
+        final input = Input.output(unknownOutput);
+
+        // resolve will call output.future which throws for unknown
+        expect(
+          InputUtils.resolve(input),
+          throwsA(isA<StateError>()),
+        );
+      });
+
+      test('transform error does not affect original InputValue', () {
+        final input = Input.value(5);
+
+        // This will throw during map
+        expect(
+          () => InputUtils.map<int, int>(input, (v) => throw Exception('error')),
+          throwsA(isA<Exception>()),
+        );
+
+        // But the original input is still usable
+        expect((input as InputValue<int>).value, equals(5));
+        expect(input.toOutput().future, completion(equals(5)));
+      });
+    });
+  });
 }
