@@ -84,10 +84,16 @@ func (h *DartLanguageHost) Run(
 	// Parse runtime options from ProgramInfo
 	opts := parseRuntimeOptions(req.Info)
 
-	// Determine the program directory
+	// Determine the program directory and entry point
 	programDir := req.Pwd
-	if req.Info != nil && req.Info.ProgramDirectory != "" {
-		programDir = req.Info.ProgramDirectory
+	entryPoint := ""
+	if req.Info != nil {
+		if req.Info.ProgramDirectory != "" {
+			programDir = req.Info.ProgramDirectory
+		}
+		if req.Info.EntryPoint != "" {
+			entryPoint = req.Info.EntryPoint
+		}
 	}
 
 	config := ExecutorConfig{
@@ -105,6 +111,7 @@ func (h *DartLanguageHost) Run(
 		// Runtime options
 		ExecutionMode: opts.Mode,
 		BinaryPath:    opts.Binary,
+		EntryPoint:    entryPoint,
 	}
 
 	result, err := h.executor.Run(ctx, config)

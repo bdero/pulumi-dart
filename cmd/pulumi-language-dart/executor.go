@@ -49,6 +49,9 @@ type ExecutorConfig struct {
 	ExecutionMode string
 	// BinaryPath is the path to a pre-compiled binary (when ExecutionMode is "binary").
 	BinaryPath string
+	// EntryPoint is the entry point file to run (e.g., "bin/main.dart").
+	// If empty, "dart run" uses the default entry point based on the package name.
+	EntryPoint string
 }
 
 // ExecutorResult contains the result of running a Dart program.
@@ -121,6 +124,12 @@ func (e *DartExecutor) buildRunCommand(ctx context.Context, config ExecutorConfi
 
 	// Build the command arguments using "dart run"
 	args := []string{"run"}
+
+	// Add entry point if specified
+	if config.EntryPoint != "" {
+		args = append(args, config.EntryPoint)
+	}
+
 	args = append(args, config.Args...)
 
 	cmd := exec.CommandContext(ctx, dartPath, args...)

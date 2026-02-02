@@ -401,3 +401,358 @@ func (m *mockInstallDepsServer) Send(resp *pulumirpc.InstallDependenciesResponse
 	m.messages = append(m.messages, string(resp.Stdout))
 	return nil
 }
+
+func TestIntegration_RunWithDryRun(t *testing.T) {
+	// Find the test data directory
+	testDataDir, err := filepath.Abs("../../tests/integration/testdata/basic_random")
+	if err != nil {
+		t.Fatalf("Failed to get test data directory: %v", err)
+	}
+
+	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
+		t.Skipf("Test data directory not found: %s", testDataDir)
+	}
+
+	// Run dart pub get to install dependencies
+	pubGetCmd := exec.Command("dart", "pub", "get")
+	pubGetCmd.Dir = testDataDir
+	if err := pubGetCmd.Run(); err != nil {
+		t.Fatalf("dart pub get failed: %v", err)
+	}
+
+	// Start mock servers
+	monitor, _, monitorAddr, engineAddr, cleanup := startMockServers(t)
+	defer cleanup()
+
+	// Create the language host
+	host := NewDartLanguageHostWithEngine(engineAddr)
+
+	// Run the Dart program in dry-run mode
+	ctx := context.Background()
+	req := &pulumirpc.RunRequest{
+		Pwd:            testDataDir,
+		MonitorAddress: monitorAddr,
+		Project:        "test-project",
+		Stack:          "test-stack",
+		DryRun:         true, // Enable dry-run mode
+		Info: &pulumirpc.ProgramInfo{
+			RootDirectory:    testDataDir,
+			ProgramDirectory: testDataDir,
+			EntryPoint:       "bin/main.dart",
+		},
+	}
+
+	resp, err := host.Run(ctx, req)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if resp.Error != "" {
+		t.Errorf("Program returned error: %s", resp.Error)
+	}
+
+	// Verify the resource was registered
+	resources := monitor.GetResources()
+	if len(resources) == 0 {
+		t.Fatal("No resources were registered during dry-run")
+	}
+
+	t.Logf("Dry-run registered %d resources", len(resources))
+}
+
+func TestIntegration_RunWithConfig(t *testing.T) {
+	// Find the test data directory
+	testDataDir, err := filepath.Abs("../../tests/integration/testdata/basic_random")
+	if err != nil {
+		t.Fatalf("Failed to get test data directory: %v", err)
+	}
+
+	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
+		t.Skipf("Test data directory not found: %s", testDataDir)
+	}
+
+	// Run dart pub get to install dependencies
+	pubGetCmd := exec.Command("dart", "pub", "get")
+	pubGetCmd.Dir = testDataDir
+	if err := pubGetCmd.Run(); err != nil {
+		t.Fatalf("dart pub get failed: %v", err)
+	}
+
+	// Start mock servers
+	monitor, _, monitorAddr, engineAddr, cleanup := startMockServers(t)
+	defer cleanup()
+
+	// Create the language host
+	host := NewDartLanguageHostWithEngine(engineAddr)
+
+	// Run the Dart program with config values
+	ctx := context.Background()
+	req := &pulumirpc.RunRequest{
+		Pwd:            testDataDir,
+		MonitorAddress: monitorAddr,
+		Project:        "test-project",
+		Stack:          "test-stack",
+		Config: map[string]string{
+			"test:key1": "value1",
+			"test:key2": "value2",
+		},
+		Info: &pulumirpc.ProgramInfo{
+			RootDirectory:    testDataDir,
+			ProgramDirectory: testDataDir,
+			EntryPoint:       "bin/main.dart",
+		},
+	}
+
+	resp, err := host.Run(ctx, req)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if resp.Error != "" {
+		t.Errorf("Program returned error: %s", resp.Error)
+	}
+
+	// Verify the resource was registered
+	resources := monitor.GetResources()
+	if len(resources) == 0 {
+		t.Fatal("No resources were registered")
+	}
+
+	t.Logf("Config test registered %d resources", len(resources))
+}
+
+func TestIntegration_About(t *testing.T) {
+	host := NewDartLanguageHost()
+	ctx := context.Background()
+
+	resp, err := host.About(ctx, &pulumirpc.AboutRequest{})
+	if err != nil {
+		t.Fatalf("About failed: %v", err)
+	}
+
+	if resp.Executable != "dart" {
+		t.Errorf("Expected executable 'dart', got '%s'", resp.Executable)
+	}
+
+	if resp.Version == "" {
+		t.Error("Expected non-empty version")
+	}
+
+	// Version should start with "3." for Dart 3.x
+	if !strings.HasPrefix(resp.Version, "3.") {
+		t.Logf("Warning: Dart version %s may not be compatible", resp.Version)
+	}
+
+	t.Logf("About: executable=%s, version=%s", resp.Executable, resp.Version)
+}
+
+func TestIntegration_GetProgramDependencies(t *testing.T) {
+	testDataDir, err := filepath.Abs("../../tests/integration/testdata/basic_random")
+	if err != nil {
+		t.Fatalf("Failed to get test data directory: %v", err)
+	}
+
+	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
+		t.Skipf("Test data directory not found: %s", testDataDir)
+	}
+
+	// Run dart pub get to ensure pubspec.lock exists
+	pubGetCmd := exec.Command("dart", "pub", "get")
+	pubGetCmd.Dir = testDataDir
+	if err := pubGetCmd.Run(); err != nil {
+		t.Fatalf("dart pub get failed: %v", err)
+	}
+
+	host := NewDartLanguageHost()
+	ctx := context.Background()
+
+	req := &pulumirpc.GetProgramDependenciesRequest{
+		Program:                 testDataDir,
+		TransitiveDependencies: false,
+	}
+
+	resp, err := host.GetProgramDependencies(ctx, req)
+	if err != nil {
+		t.Fatalf("GetProgramDependencies failed: %v", err)
+	}
+
+	// Should have at least the pulumi dependency
+	if len(resp.Dependencies) == 0 {
+		t.Error("Expected at least one dependency")
+	}
+
+	var foundPulumi bool
+	for _, dep := range resp.Dependencies {
+		t.Logf("  - %s: %s", dep.Name, dep.Version)
+		if dep.Name == "pulumi" {
+			foundPulumi = true
+		}
+	}
+
+	if !foundPulumi {
+		t.Error("Expected to find 'pulumi' in dependencies")
+	}
+
+	t.Logf("Found %d dependencies", len(resp.Dependencies))
+}
+
+func TestIntegration_GetProgramDependencies_Transitive(t *testing.T) {
+	testDataDir, err := filepath.Abs("../../tests/integration/testdata/basic_random")
+	if err != nil {
+		t.Fatalf("Failed to get test data directory: %v", err)
+	}
+
+	if _, err := os.Stat(testDataDir); os.IsNotExist(err) {
+		t.Skipf("Test data directory not found: %s", testDataDir)
+	}
+
+	// Run dart pub get to ensure pubspec.lock exists
+	pubGetCmd := exec.Command("dart", "pub", "get")
+	pubGetCmd.Dir = testDataDir
+	if err := pubGetCmd.Run(); err != nil {
+		t.Fatalf("dart pub get failed: %v", err)
+	}
+
+	host := NewDartLanguageHost()
+	ctx := context.Background()
+
+	req := &pulumirpc.GetProgramDependenciesRequest{
+		Program:                 testDataDir,
+		TransitiveDependencies: true,
+	}
+
+	resp, err := host.GetProgramDependencies(ctx, req)
+	if err != nil {
+		t.Fatalf("GetProgramDependencies (transitive) failed: %v", err)
+	}
+
+	// Transitive dependencies should include more packages
+	t.Logf("Found %d transitive dependencies", len(resp.Dependencies))
+
+	// Should have transitive deps like grpc, protobuf, etc.
+	if len(resp.Dependencies) < 5 {
+		t.Logf("Warning: Expected more transitive dependencies, got %d", len(resp.Dependencies))
+	}
+}
+
+func TestIntegration_RunInvalidProgram(t *testing.T) {
+	// Create a temporary directory with an invalid Dart program
+	tempDir, err := os.MkdirTemp("", "pulumi-dart-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	// Create an invalid pubspec.yaml
+	pubspecContent := `name: invalid_test
+description: Test with invalid Dart code
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+`
+	if err := os.WriteFile(filepath.Join(tempDir, "pubspec.yaml"), []byte(pubspecContent), 0644); err != nil {
+		t.Fatalf("Failed to write pubspec.yaml: %v", err)
+	}
+
+	// Create bin directory
+	binDir := filepath.Join(tempDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("Failed to create bin directory: %v", err)
+	}
+
+	// Create an invalid Dart file (syntax error)
+	invalidCode := `void main() {
+  print("This is incomplete...
+}
+`
+	if err := os.WriteFile(filepath.Join(binDir, "main.dart"), []byte(invalidCode), 0644); err != nil {
+		t.Fatalf("Failed to write main.dart: %v", err)
+	}
+
+	// Start mock servers
+	_, _, monitorAddr, engineAddr, cleanup := startMockServers(t)
+	defer cleanup()
+
+	// Create the language host
+	host := NewDartLanguageHostWithEngine(engineAddr)
+
+	// Try to run the invalid program
+	ctx := context.Background()
+	req := &pulumirpc.RunRequest{
+		Pwd:            tempDir,
+		MonitorAddress: monitorAddr,
+		Project:        "test-project",
+		Stack:          "test-stack",
+		Info: &pulumirpc.ProgramInfo{
+			RootDirectory:    tempDir,
+			ProgramDirectory: tempDir,
+			EntryPoint:       "bin/main.dart",
+		},
+	}
+
+	resp, err := host.Run(ctx, req)
+	if err != nil {
+		// This is also acceptable - the executor might return an error
+		t.Logf("Run returned error as expected: %v", err)
+		return
+	}
+
+	// If we get a response, it should have an error
+	if resp.Error == "" {
+		t.Error("Expected error from running invalid program")
+	} else {
+		t.Logf("Got expected error: %s", resp.Error)
+	}
+}
+
+func TestIntegration_Handshake(t *testing.T) {
+	host := NewDartLanguageHost()
+	ctx := context.Background()
+
+	resp, err := host.Handshake(ctx, &pulumirpc.LanguageHandshakeRequest{})
+	if err != nil {
+		t.Fatalf("Handshake failed: %v", err)
+	}
+
+	// Handshake should return an empty response for now
+	if resp == nil {
+		t.Error("Expected non-nil response")
+	}
+
+	t.Log("Handshake completed successfully")
+}
+
+func TestIntegration_GetPluginInfo(t *testing.T) {
+	host := NewDartLanguageHost()
+	ctx := context.Background()
+
+	resp, err := host.GetPluginInfo(ctx, &emptypb.Empty{})
+	if err != nil {
+		t.Fatalf("GetPluginInfo failed: %v", err)
+	}
+
+	if resp.Version == "" {
+		t.Error("Expected non-empty version")
+	}
+
+	t.Logf("Plugin version: %s", resp.Version)
+}
+
+func TestIntegration_RuntimeOptionsPrompts(t *testing.T) {
+	host := NewDartLanguageHost()
+	ctx := context.Background()
+
+	resp, err := host.RuntimeOptionsPrompts(ctx, &pulumirpc.RuntimeOptionsRequest{})
+	if err != nil {
+		t.Fatalf("RuntimeOptionsPrompts failed: %v", err)
+	}
+
+	// Should return an empty response (no prompts for now)
+	if resp == nil {
+		t.Error("Expected non-nil response")
+	}
+
+	t.Log("RuntimeOptionsPrompts completed successfully")
+}

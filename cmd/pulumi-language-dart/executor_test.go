@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"testing"
 )
 
@@ -221,5 +222,82 @@ func TestExecutorResult(t *testing.T) {
 	}
 	if result.Bail != true {
 		t.Error("Bail not set correctly")
+	}
+}
+
+func TestExecutorConfig_WithEntryPoint(t *testing.T) {
+	config := ExecutorConfig{
+		Program:       "/path/to/program",
+		ExecutionMode: "run",
+		EntryPoint:    "bin/main.dart",
+	}
+
+	if config.EntryPoint != "bin/main.dart" {
+		t.Errorf("EntryPoint not set correctly, got %s", config.EntryPoint)
+	}
+}
+
+func TestBuildRunCommand_WithEntryPoint(t *testing.T) {
+	executor := NewDartExecutor()
+
+	config := ExecutorConfig{
+		Program:       "/path/to/program",
+		ExecutionMode: "run",
+		EntryPoint:    "bin/main.dart",
+		Args:          []string{"--arg1"},
+	}
+
+	ctx := context.Background()
+	cmd, err := executor.buildRunCommand(ctx, config, "/path/to/program")
+	if err != nil {
+		t.Skipf("Skipping test because Dart may not be installed: %v", err)
+	}
+
+	// Check that entry point is included in args
+	args := cmd.Args
+	foundEntryPoint := false
+	for _, arg := range args {
+		if arg == "bin/main.dart" {
+			foundEntryPoint = true
+			break
+		}
+	}
+
+	if !foundEntryPoint {
+		t.Errorf("Entry point not found in command args: %v", args)
+	}
+}
+
+func TestBuildRunCommand_WithoutEntryPoint(t *testing.T) {
+	executor := NewDartExecutor()
+
+	config := ExecutorConfig{
+		Program:       "/path/to/program",
+		ExecutionMode: "run",
+		EntryPoint:    "", // Empty entry point
+		Args:          []string{"--arg1"},
+	}
+
+	ctx := context.Background()
+	cmd, err := executor.buildRunCommand(ctx, config, "/path/to/program")
+	if err != nil {
+		t.Skipf("Skipping test because Dart may not be installed: %v", err)
+	}
+
+	// Check that args start with "run" then program args
+	// Should NOT have an entry point file
+	args := cmd.Args
+	if len(args) < 3 {
+		t.Fatalf("Expected at least 3 args, got %v", args)
+	}
+
+	// args[0] is the dart executable path
+	// args[1] should be "run"
+	// args[2] should be "--arg1" (not an entry point file)
+	if args[1] != "run" {
+		t.Errorf("Expected args[1] to be 'run', got %s", args[1])
+	}
+	if args[2] != "--arg1" {
+		t.Errorf("Expected args[2] to be '--arg1', got %s", args[2])
 	}
 }
