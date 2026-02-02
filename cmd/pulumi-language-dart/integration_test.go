@@ -756,3 +756,256 @@ func TestIntegration_RuntimeOptionsPrompts(t *testing.T) {
 
 	t.Log("RuntimeOptionsPrompts completed successfully")
 }
+
+// TestIntegration_GeneratedResourceRegistration tests the end-to-end flow of:
+// 1. Generating a Dart SDK from a Pulumi schema
+// 2. Creating a program that uses the generated resource classes
+// 3. Running the program with the mock runtime
+// 4. Verifying the resource registers correctly with proper inputs/outputs
+//
+// This test catches code generation bugs that wouldn't be caught by unit tests
+// or static analysis alone, as it verifies runtime behavior.
+func TestIntegration_GeneratedResourceRegistration(t *testing.T) {
+	// Create a temporary directory for the generated SDK
+	sdkDir, err := os.MkdirTemp("", "pulumi-dart-gen-sdk")
+	if err != nil {
+		t.Fatalf("Failed to create temp SDK directory: %v", err)
+	}
+	defer os.RemoveAll(sdkDir)
+
+	// Create a temporary directory for the test project
+	projectDir, err := os.MkdirTemp("", "pulumi-dart-gen-test")
+	if err != nil {
+		t.Fatalf("Failed to create temp project directory: %v", err)
+	}
+	defer os.RemoveAll(projectDir)
+
+	// Step 1: Generate the SDK from the random schema
+	schemaBytes, err := os.ReadFile("testdata/random_schema.json")
+	if err != nil {
+		t.Fatalf("Failed to read test schema: %v", err)
+	}
+
+	diagnostics, err := GeneratePackage(sdkDir, string(schemaBytes), nil, "", nil)
+	if err != nil {
+		t.Fatalf("GeneratePackage failed: %v", err)
+	}
+
+	// Check for error diagnostics
+	for _, diag := range diagnostics {
+		if diag.Severity == 1 { // DIAG_ERROR
+			t.Fatalf("Generation had error diagnostic: %s", diag.Summary)
+		}
+	}
+
+	t.Log("Step 1: SDK generated successfully")
+
+	// Update the generated SDK's pubspec.yaml to use the local core SDK
+	coreSdkPath, err := filepath.Abs("../../sdk/dart")
+	if err != nil {
+		t.Fatalf("Failed to get core SDK path: %v", err)
+	}
+
+	sdkPubspec := fmt.Sprintf(`name: pulumi_random
+version: 4.15.0
+description: Pulumi provider SDK for random
+
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+
+dependencies:
+  pulumi:
+    path: %s
+  meta: ^1.11.0
+`, filepath.ToSlash(coreSdkPath))
+
+	if err := os.WriteFile(filepath.Join(sdkDir, "pubspec.yaml"), []byte(sdkPubspec), 0644); err != nil {
+		t.Fatalf("Failed to write SDK pubspec.yaml: %v", err)
+	}
+
+	// Run dart pub get on the generated SDK
+	pubGetCmd := exec.Command("dart", "pub", "get")
+	pubGetCmd.Dir = sdkDir
+	pubGetOutput, err := pubGetCmd.CombinedOutput()
+	if err != nil {
+		t.Logf("dart pub get output (SDK): %s", string(pubGetOutput))
+		t.Fatalf("dart pub get failed on generated SDK: %v", err)
+	}
+
+	t.Log("Step 2: SDK dependencies resolved")
+
+	// Step 3: Create a test project that uses the generated SDK
+	projectPubspec := fmt.Sprintf(`name: generated_resource_test
+description: Test project for generated resources
+version: 0.1.0
+publish_to: none
+
+environment:
+  sdk: '>=3.8.0 <4.0.0'
+
+dependencies:
+  pulumi:
+    path: %s
+  pulumi_random:
+    path: %s
+`, filepath.ToSlash(coreSdkPath), filepath.ToSlash(sdkDir))
+
+	if err := os.WriteFile(filepath.Join(projectDir, "pubspec.yaml"), []byte(projectPubspec), 0644); err != nil {
+		t.Fatalf("Failed to write project pubspec.yaml: %v", err)
+	}
+
+	// Create Pulumi.yaml
+	pulumiYaml := `name: generated-resource-test
+runtime: dart
+description: Test project for generated resource classes
+`
+	if err := os.WriteFile(filepath.Join(projectDir, "Pulumi.yaml"), []byte(pulumiYaml), 0644); err != nil {
+		t.Fatalf("Failed to write Pulumi.yaml: %v", err)
+	}
+
+	// Create bin directory
+	binDir := filepath.Join(projectDir, "bin")
+	if err := os.MkdirAll(binDir, 0755); err != nil {
+		t.Fatalf("Failed to create bin directory: %v", err)
+	}
+
+	// Create main.dart that uses the generated IndexRandomString class
+	// Note: The class name follows the pattern ModuleName + TypeName from the token
+	// "random:index/randomString:RandomString" -> "IndexRandomString"
+	mainDart := `import 'package:pulumi/pulumi.dart';
+import 'package:pulumi_random/pulumi_random.dart';
+
+Future<void> main() async {
+  await Pulumi.run((ctx) async {
+    // Create a RandomString resource using the generated class
+    // Class name is IndexRandomString from token random:index/randomString:RandomString
+    final randomStr = IndexRandomString(
+      'test-generated-string',
+      IndexRandomStringArgs(
+        length: Input.value(24),
+        upper: Input.value(true),
+        lower: Input.value(true),
+        numeric: Input.value(false),
+        special: Input.value(false),
+      ),
+    );
+
+    // Wait for registration
+    await randomStr.registered;
+
+    // Export outputs
+    ctx.export('stringResult', randomStr.result);
+    ctx.export('stringLength', randomStr.length);
+  });
+}
+`
+	if err := os.WriteFile(filepath.Join(binDir, "main.dart"), []byte(mainDart), 0644); err != nil {
+		t.Fatalf("Failed to write main.dart: %v", err)
+	}
+
+	t.Log("Step 3: Test project created")
+
+	// Run dart pub get on the test project
+	pubGetCmd = exec.Command("dart", "pub", "get")
+	pubGetCmd.Dir = projectDir
+	pubGetOutput, err = pubGetCmd.CombinedOutput()
+	if err != nil {
+		t.Logf("dart pub get output (project): %s", string(pubGetOutput))
+		t.Fatalf("dart pub get failed on test project: %v", err)
+	}
+
+	t.Log("Step 4: Test project dependencies resolved")
+
+	// Step 5: Start mock servers and run the program
+	monitor, _, monitorAddr, engineAddr, cleanup := startMockServers(t)
+	defer cleanup()
+
+	host := NewDartLanguageHostWithEngine(engineAddr)
+	ctx := context.Background()
+
+	req := &pulumirpc.RunRequest{
+		Pwd:            projectDir,
+		MonitorAddress: monitorAddr,
+		Project:        "generated-resource-test",
+		Stack:          "test-stack",
+		Info: &pulumirpc.ProgramInfo{
+			RootDirectory:    projectDir,
+			ProgramDirectory: projectDir,
+			EntryPoint:       "bin/main.dart",
+		},
+	}
+
+	resp, err := host.Run(ctx, req)
+	if err != nil {
+		t.Fatalf("Run failed: %v", err)
+	}
+
+	if resp.Error != "" {
+		t.Fatalf("Program returned error: %s", resp.Error)
+	}
+
+	t.Log("Step 5: Program executed successfully")
+
+	// Step 6: Verify the resource was registered correctly
+	resources := monitor.GetResources()
+	if len(resources) == 0 {
+		t.Fatal("No resources were registered")
+	}
+
+	// Find the RandomString resource
+	var randomStringResource *registeredResource
+	for _, r := range resources {
+		if r.Type == "random:index/randomString:RandomString" {
+			randomStringResource = &r
+			break
+		}
+	}
+
+	if randomStringResource == nil {
+		t.Fatal("RandomString resource was not registered")
+	}
+
+	// Verify resource name
+	if randomStringResource.Name != "test-generated-string" {
+		t.Errorf("Expected resource name 'test-generated-string', got '%s'", randomStringResource.Name)
+	}
+
+	// Verify it's a custom resource
+	if !randomStringResource.Custom {
+		t.Error("Expected resource to be a custom resource")
+	}
+
+	// Verify inputs were properly serialized
+	if randomStringResource.Inputs == nil {
+		t.Fatal("Resource inputs are nil")
+	}
+
+	// Check length input
+	if length, ok := randomStringResource.Inputs.Fields["length"]; ok {
+		if length.GetNumberValue() != 24 {
+			t.Errorf("Expected length 24, got %v", length.GetNumberValue())
+		}
+	} else {
+		t.Error("Length input not found")
+	}
+
+	// Check boolean inputs
+	boolInputs := map[string]bool{
+		"upper":   true,
+		"lower":   true,
+		"numeric": false,
+		"special": false,
+	}
+	for name, expected := range boolInputs {
+		if val, ok := randomStringResource.Inputs.Fields[name]; ok {
+			if val.GetBoolValue() != expected {
+				t.Errorf("Expected %s=%v, got %v", name, expected, val.GetBoolValue())
+			}
+		} else {
+			t.Errorf("%s input not found", name)
+		}
+	}
+
+	t.Logf("Step 6: Resource verified - URN: %s, ID: %s", randomStringResource.URN, randomStringResource.ID)
+	t.Log("Integration test passed: Generated resource code works correctly with the runtime")
+}
