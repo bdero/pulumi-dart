@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/example/pulumi-dart/pkg/codegen/dart"
+	"github.com/bdero/pulumi-dart/pkg/codegen/dart"
 	"github.com/hashicorp/hcl/v2"
 	"github.com/pulumi/pulumi/pkg/v3/codegen/schema"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"

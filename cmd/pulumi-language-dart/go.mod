@@ -1,9 +1,9 @@
-module github.com/example/pulumi-dart/cmd/pulumi-language-dart
+module github.com/bdero/pulumi-dart/cmd/pulumi-language-dart
 
 go 1.22
 
 require (
-	github.com/example/pulumi-dart/pkg/codegen/dart v0.0.0
+	github.com/bdero/pulumi-dart/pkg/codegen/dart v0.0.0
 	github.com/hashicorp/hcl/v2 v2.22.0
 	github.com/pulumi/pulumi/pkg/v3 v3.163.0
 	github.com/pulumi/pulumi/sdk/v3 v3.163.0
@@ -12,7 +12,7 @@ require (
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-replace github.com/example/pulumi-dart/pkg/codegen/dart => ../../pkg/codegen/dart
+replace github.com/bdero/pulumi-dart/pkg/codegen/dart => ../../pkg/codegen/dart
 
 require (
 	dario.cat/mergo v1.0.0 // indirect

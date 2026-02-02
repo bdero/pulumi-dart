@@ -1,4 +1,4 @@
-module github.com/example/pulumi-dart/pkg/codegen/dart
+module github.com/bdero/pulumi-dart/pkg/codegen/dart
 
 go 1.22
 
