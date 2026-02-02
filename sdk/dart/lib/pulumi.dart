@@ -24,6 +24,7 @@ export 'src/resource.dart';
 export 'src/pulumi.dart';
 export 'src/config.dart';
 export 'src/invoke.dart';
+export 'src/stack.dart';
 
 // Runtime utilities (used by generated provider SDKs)
 export 'src/runtime/serialization.dart' show PropertyDeserializer;
