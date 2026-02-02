@@ -118,6 +118,7 @@ func (h *DartLanguageHost) Run(
 		Args:           req.Args,
 		Config:         req.Config,
 		DryRun:         req.DryRun,
+		QueryMode:      req.QueryMode,
 		Parallel:       int(req.Parallel),
 		MonitorAddress: req.MonitorAddress,
 		EngineAddress:  h.engineAddress,

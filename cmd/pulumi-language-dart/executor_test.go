@@ -124,6 +124,17 @@ func TestExecutorConfig_AotMode(t *testing.T) {
 	}
 }
 
+func TestExecutorConfig_QueryMode(t *testing.T) {
+	config := ExecutorConfig{
+		Program:   "/path/to/program",
+		QueryMode: true,
+	}
+
+	if config.QueryMode != true {
+		t.Error("QueryMode not set correctly")
+	}
+}
+
 func TestBuildEnvironment(t *testing.T) {
 	executor := NewDartExecutor()
 
@@ -167,8 +178,44 @@ func TestBuildEnvironment(t *testing.T) {
 	if envMap["PULUMI_DRY_RUN"] != "true" {
 		t.Error("PULUMI_DRY_RUN not set correctly")
 	}
+	if envMap["PULUMI_QUERY_MODE"] != "false" {
+		t.Error("PULUMI_QUERY_MODE not set correctly (should be false when QueryMode is false)")
+	}
 	if envMap["PULUMI_CONFIG_MYAPP_KEY1"] != "value1" {
 		t.Error("Config key not transformed correctly")
+	}
+}
+
+func TestBuildEnvironment_QueryMode(t *testing.T) {
+	executor := NewDartExecutor()
+
+	config := ExecutorConfig{
+		MonitorAddress: "localhost:1234",
+		EngineAddress:  "localhost:5678",
+		Project:        "my-project",
+		Stack:          "dev",
+		Organization:   "my-org",
+		Parallel:       4,
+		DryRun:         false,
+		QueryMode:      true,
+	}
+
+	env := executor.buildEnvironment(config)
+
+	// Check that required env vars are present
+	envMap := make(map[string]string)
+	for _, e := range env {
+		parts := splitEnvVar(e)
+		if len(parts) == 2 {
+			envMap[parts[0]] = parts[1]
+		}
+	}
+
+	if envMap["PULUMI_QUERY_MODE"] != "true" {
+		t.Error("PULUMI_QUERY_MODE not set correctly when QueryMode is true")
+	}
+	if envMap["PULUMI_DRY_RUN"] != "false" {
+		t.Error("PULUMI_DRY_RUN not set correctly")
 	}
 }
 

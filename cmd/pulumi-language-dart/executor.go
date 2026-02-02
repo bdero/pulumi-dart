@@ -57,6 +57,9 @@ type ExecutorConfig struct {
 	// EngineClient is the gRPC client for communicating with the Pulumi engine.
 	// Required when AttachDebugger is true to notify the engine of the debug session.
 	EngineClient EngineClient
+	// QueryMode indicates whether this is a query operation (pulumi query).
+	// In query mode, the program can inspect cloud resources but cannot modify them.
+	QueryMode bool
 }
 
 // ExecutorResult contains the result of running a Dart program.
@@ -330,6 +333,12 @@ func (e *DartExecutor) buildEnvironment(config ExecutorConfig) []string {
 		env = append(env, "PULUMI_DRY_RUN=true")
 	} else {
 		env = append(env, "PULUMI_DRY_RUN=false")
+	}
+
+	if config.QueryMode {
+		env = append(env, "PULUMI_QUERY_MODE=true")
+	} else {
+		env = append(env, "PULUMI_QUERY_MODE=false")
 	}
 
 	// Add configuration values as environment variables
