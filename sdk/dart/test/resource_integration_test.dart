@@ -252,6 +252,61 @@ void main() {
       expect(mockService.registeredResources, hasLength(1));
       expect(mockService.registeredResources.first.protect, isTrue);
     });
+
+    test('Resource sends aliases when specified', () async {
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::new-name';
+      mockService.nextId = 'bucket-id';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucket = TestBucket(
+        'new-name',
+        bucketName: 'new-bucket',
+        options: ResourceOptions(
+          aliases: [
+            Alias.urn('urn:pulumi:stack::project::aws:s3/bucket:Bucket::old-name'),
+            Alias.name('old-name'),
+            Alias.spec(
+              name: 'legacy-name',
+              type: 'aws:s3/bucket:Bucket',
+              stack: 'old-stack',
+              project: 'old-project',
+            ),
+            Alias.noParent(),
+          ],
+        ),
+      );
+      await bucket.registered;
+
+      expect(mockService.registeredResources, hasLength(1));
+
+      final request = mockService.registeredResources.first;
+      expect(request.aliases, hasLength(4));
+
+      // First alias: URN style
+      expect(request.aliases[0].hasUrn(), isTrue);
+      expect(request.aliases[0].urn,
+          equals('urn:pulumi:stack::project::aws:s3/bucket:Bucket::old-name'));
+
+      // Second alias: name only (spec style)
+      expect(request.aliases[1].hasSpec(), isTrue);
+      expect(request.aliases[1].spec.name, equals('old-name'));
+
+      // Third alias: full spec style
+      expect(request.aliases[2].hasSpec(), isTrue);
+      expect(request.aliases[2].spec.name, equals('legacy-name'));
+      expect(request.aliases[2].spec.type, equals('aws:s3/bucket:Bucket'));
+      expect(request.aliases[2].spec.stack, equals('old-stack'));
+      expect(request.aliases[2].spec.project, equals('old-project'));
+
+      // Fourth alias: noParent style
+      expect(request.aliases[3].hasSpec(), isTrue);
+      expect(request.aliases[3].spec.noParent, isTrue);
+    });
   });
 
   group('Resource fallback without Runtime', () {
