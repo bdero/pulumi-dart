@@ -33,9 +33,25 @@ class TestBucket extends CustomResource {
   @override
   void processOutputs(Struct properties) {
     super.processOutputs(properties);
-    bucketName =
-        Output.of(properties.fields['bucketName']?.stringValue ?? '');
-    arn = Output.of(properties.fields['arn']?.stringValue ?? '');
+    // Output properties from a resource should include the resource's URN as dependency.
+    // This enables proper dependency tracking when these outputs are used as inputs elsewhere.
+    final bucketNameValue =
+        properties.fields['bucketName']?.stringValue ?? '';
+    final arnValue = properties.fields['arn']?.stringValue ?? '';
+
+    // Create outputs using fromDataFuture to lazily include the URN as a dependency
+    bucketName = Output.fromDataFuture(
+      urn.dataFuture.then((urnData) => OutputData.known(
+        bucketNameValue,
+        dependencies: {...urnData.dependencies, urnData.value},
+      )),
+    );
+    arn = Output.fromDataFuture(
+      urn.dataFuture.then((urnData) => OutputData.known(
+        arnValue,
+        dependencies: {...urnData.dependencies, urnData.value},
+      )),
+    );
   }
 }
 
@@ -912,6 +928,420 @@ void main() {
     });
   });
 
+  group('Output dependency tracking across resources', () {
+    test('Dependencies from Output.apply are preserved and sent to monitor', () async {
+      // Set up resource A
+      final urnA = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-a';
+      mockService.nextUrn = urnA;
+      mockService.nextId = 'bucket-a-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-a')
+        ..fields['arn'] = (Value()..stringValue = 'arn:aws:s3:::bucket-a');
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      // Create resource A
+      final bucketA = TestBucket('bucket-a', bucketName: 'bucket-a');
+      await bucketA.registered;
+
+      // Create a transformed Output that preserves dependencies
+      final transformedArn = bucketA.arn.apply((arn) => 'processed-$arn');
+
+      // Set up resource B that uses the transformed output
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-b';
+      mockService.nextId = 'bucket-b-id';
+      mockService.nextProperties = Struct();
+
+      final bucketB = TestBucketWithOutputInput(
+        'bucket-b',
+        bucketNameOutput: transformedArn,
+      );
+      await bucketB.registered;
+
+      // Verify resource B has resource A as a dependency
+      expect(mockService.registeredResources, hasLength(2));
+      final requestB = mockService.registeredResources.last;
+      expect(requestB.dependencies, contains(urnA));
+    });
+
+    test('Dependencies from Output.all are combined and sent to monitor', () async {
+      // Set up resource A
+      final urnA = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-a';
+      mockService.nextUrn = urnA;
+      mockService.nextId = 'bucket-a-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-a');
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucketA = TestBucket('bucket-a', bucketName: 'bucket-a');
+      await bucketA.registered;
+
+      // Set up resource B
+      final urnB = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-b';
+      mockService.nextUrn = urnB;
+      mockService.nextId = 'bucket-b-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-b');
+
+      final bucketB = TestBucket('bucket-b', bucketName: 'bucket-b');
+      await bucketB.registered;
+
+      // Combine outputs from both resources using Output.all
+      final combined = Output.all([bucketA.bucketName, bucketB.bucketName])
+          .apply((names) => names.join('-'));
+
+      // Set up resource C that uses the combined output
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-c';
+      mockService.nextId = 'bucket-c-id';
+      mockService.nextProperties = Struct();
+
+      final bucketC = TestBucketWithOutputInput(
+        'bucket-c',
+        bucketNameOutput: combined,
+      );
+      await bucketC.registered;
+
+      // Verify resource C has both A and B as dependencies
+      expect(mockService.registeredResources, hasLength(3));
+      final requestC = mockService.registeredResources.last;
+      expect(requestC.dependencies, contains(urnA));
+      expect(requestC.dependencies, contains(urnB));
+    });
+
+    test('Dependencies from Output.tuple2 are merged and sent to monitor', () async {
+      // Set up resource A
+      final urnA = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-a';
+      mockService.nextUrn = urnA;
+      mockService.nextId = 'bucket-a-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-a')
+        ..fields['arn'] = (Value()..stringValue = 'arn:aws:s3:::bucket-a');
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucketA = TestBucket('bucket-a', bucketName: 'bucket-a');
+      await bucketA.registered;
+
+      // Set up resource B
+      final urnB = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-b';
+      mockService.nextUrn = urnB;
+      mockService.nextId = 'bucket-b-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-b')
+        ..fields['arn'] = (Value()..stringValue = 'arn:aws:s3:::bucket-b');
+
+      final bucketB = TestBucket('bucket-b', bucketName: 'bucket-b');
+      await bucketB.registered;
+
+      // Use tuple2 to combine outputs
+      final tupleOutput = Output.tuple2(bucketA.arn, bucketB.arn)
+          .apply((tuple) => '${tuple.$1}|${tuple.$2}');
+
+      // Set up resource C
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-c';
+      mockService.nextId = 'bucket-c-id';
+      mockService.nextProperties = Struct();
+
+      final bucketC = TestBucketWithOutputInput(
+        'bucket-c',
+        bucketNameOutput: tupleOutput,
+      );
+      await bucketC.registered;
+
+      // Verify resource C has both A and B as dependencies
+      expect(mockService.registeredResources, hasLength(3));
+      final requestC = mockService.registeredResources.last;
+      expect(requestC.dependencies, contains(urnA));
+      expect(requestC.dependencies, contains(urnB));
+    });
+
+    test('Chained Output.apply operations accumulate dependencies', () async {
+      final urnA = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-a';
+      mockService.nextUrn = urnA;
+      mockService.nextId = 'bucket-a-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-a');
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucketA = TestBucket('bucket-a', bucketName: 'bucket-a');
+      await bucketA.registered;
+
+      // Chain multiple apply operations
+      final chainedOutput = bucketA.bucketName
+          .apply((name) => 'first-$name')
+          .apply((name) => 'second-$name')
+          .apply((name) => 'third-$name');
+
+      // Set up resource B
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-b';
+      mockService.nextId = 'bucket-b-id';
+      mockService.nextProperties = Struct();
+
+      final bucketB = TestBucketWithOutputInput(
+        'bucket-b',
+        bucketNameOutput: chainedOutput,
+      );
+      await bucketB.registered;
+
+      // Verify dependencies are preserved through the chain
+      expect(mockService.registeredResources, hasLength(2));
+      final requestB = mockService.registeredResources.last;
+      expect(requestB.dependencies, contains(urnA));
+    });
+
+    test('Explicit dependsOn combined with Output dependencies', () async {
+      // Set up resource A
+      final urnA = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-a';
+      mockService.nextUrn = urnA;
+      mockService.nextId = 'bucket-a-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-a');
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucketA = TestBucket('bucket-a', bucketName: 'bucket-a');
+      await bucketA.registered;
+
+      // Set up resource B (will be an explicit dependency)
+      final urnB = 'urn:pulumi:stack::project::mycompany:components:TestComponent::component-b';
+      mockService.nextUrn = urnB;
+
+      final componentB = TestComponent('component-b');
+      await componentB.registered;
+
+      // Set up resource C with both Output dependency (from A) and explicit dependsOn (B)
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-c';
+      mockService.nextId = 'bucket-c-id';
+      mockService.nextProperties = Struct();
+
+      final bucketC = TestBucketWithOutputInputAndOptions(
+        'bucket-c',
+        bucketNameOutput: bucketA.bucketName,
+        options: ResourceOptions(dependsOn: [componentB]),
+      );
+      await bucketC.registered;
+
+      // Verify both explicit and implicit dependencies are sent
+      expect(mockService.registeredResources, hasLength(3));
+      final requestC = mockService.registeredResources.last;
+      expect(requestC.dependencies, contains(urnA));
+      expect(requestC.dependencies, contains(urnB));
+    });
+
+    test('Output.withDependencies adds dependencies that are sent to monitor', () async {
+      final depUrn1 = 'urn:pulumi:stack::project::aws:ec2/vpc:Vpc::vpc-1';
+      final depUrn2 = 'urn:pulumi:stack::project::aws:ec2/subnet:Subnet::subnet-1';
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      // Create an Output with explicit dependencies via withDependencies
+      final outputWithDeps = Output.of('my-value')
+          .withDependencies({depUrn1})
+          .withDependencies({depUrn2});
+
+      // Set up resource that uses this output
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket';
+      mockService.nextId = 'bucket-id';
+      mockService.nextProperties = Struct();
+
+      final bucket = TestBucketWithOutputInput(
+        'bucket',
+        bucketNameOutput: outputWithDeps,
+      );
+      await bucket.registered;
+
+      // Verify both dependencies are sent
+      expect(mockService.registeredResources, hasLength(1));
+      final request = mockService.registeredResources.first;
+      expect(request.dependencies, contains(depUrn1));
+      expect(request.dependencies, contains(depUrn2));
+    });
+
+    test('Dependencies flow through nested Output in map values', () async {
+      final urnA = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-a';
+      mockService.nextUrn = urnA;
+      mockService.nextId = 'bucket-a-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-a');
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucketA = TestBucket('bucket-a', bucketName: 'bucket-a');
+      await bucketA.registered;
+
+      // Set up resource B with a map containing an Output value
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-b';
+      mockService.nextId = 'bucket-b-id';
+      mockService.nextProperties = Struct();
+
+      final bucketB = TestBucketWithMapInput(
+        'bucket-b',
+        bucketName: 'bucket-b',
+        tags: {
+          'source': bucketA.bucketName, // Output value nested in map
+        },
+      );
+      await bucketB.registered;
+
+      // Verify dependencies from nested Outputs are tracked
+      expect(mockService.registeredResources, hasLength(2));
+      final requestB = mockService.registeredResources.last;
+      expect(requestB.dependencies, contains(urnA));
+    });
+
+    test('Dependencies flow through nested Output in list values', () async {
+      final urnA = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-a';
+      mockService.nextUrn = urnA;
+      mockService.nextId = 'bucket-a-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-a');
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucketA = TestBucket('bucket-a', bucketName: 'bucket-a');
+      await bucketA.registered;
+
+      // Set up resource B with a list containing an Output value
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-b';
+      mockService.nextId = 'bucket-b-id';
+      mockService.nextProperties = Struct();
+
+      final bucketB = TestBucketWithListInput(
+        'bucket-b',
+        bucketName: 'bucket-b',
+        prefixes: [bucketA.bucketName, Output.of('static-prefix')],
+      );
+      await bucketB.registered;
+
+      // Verify dependencies from nested Outputs are tracked
+      expect(mockService.registeredResources, hasLength(2));
+      final requestB = mockService.registeredResources.last;
+      expect(requestB.dependencies, contains(urnA));
+    });
+
+    test('Resource serialized as input adds its URN as dependency', () async {
+      final urnA = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-a';
+      mockService.nextUrn = urnA;
+      mockService.nextId = 'bucket-a-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-a');
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucketA = TestBucket('bucket-a', bucketName: 'bucket-a');
+      await bucketA.registered;
+
+      // Set up resource B that takes resource A as input directly
+      mockService.nextUrn = 'urn:pulumi:stack::project::myapp:LogConfig::log-config';
+      mockService.nextId = 'log-config-id';
+      mockService.nextProperties = Struct();
+
+      final logConfig = TestLogConfigResource(
+        'log-config',
+        bucket: bucketA,
+      );
+      await logConfig.registered;
+
+      // Verify resource A's URN is included as a dependency
+      expect(mockService.registeredResources, hasLength(2));
+      final requestB = mockService.registeredResources.last;
+      expect(requestB.dependencies, contains(urnA));
+    });
+
+    test('Multiple resources in a dependency chain preserve transitive relationships', () async {
+      // Create resource A
+      final urnA = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-a';
+      mockService.nextUrn = urnA;
+      mockService.nextId = 'bucket-a-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-a');
+
+      await Runtime.initialize(
+        monitorAddress: 'localhost:$port',
+        project: 'test-project',
+        stack: 'test-stack',
+      );
+
+      final bucketA = TestBucket('bucket-a', bucketName: 'bucket-a');
+      await bucketA.registered;
+
+      // Create resource B that depends on A
+      final urnB = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-b';
+      mockService.nextUrn = urnB;
+      mockService.nextId = 'bucket-b-id';
+      mockService.nextProperties = Struct()
+        ..fields['bucketName'] = (Value()..stringValue = 'bucket-b')
+        ..fields['arn'] = (Value()..stringValue = 'arn:aws:s3:::bucket-b');
+
+      final bucketB = TestBucketWithOutputInput(
+        'bucket-b',
+        bucketNameOutput: bucketA.bucketName,
+      );
+      await bucketB.registered;
+
+      // Create resource C that depends on B's output (which derived from A)
+      // Note: B's arn output should have B's URN as dependency
+      mockService.nextUrn = 'urn:pulumi:stack::project::aws:s3/bucket:Bucket::bucket-c';
+      mockService.nextId = 'bucket-c-id';
+      mockService.nextProperties = Struct();
+
+      final bucketC = TestBucketWithOutputInput(
+        'bucket-c',
+        bucketNameOutput: bucketB.arn,
+      );
+      await bucketC.registered;
+
+      // Verify:
+      // - B depends on A
+      // - C depends on B (not necessarily A, since B's outputs come from the response)
+      expect(mockService.registeredResources, hasLength(3));
+
+      final requestB = mockService.registeredResources[1];
+      expect(requestB.dependencies, contains(urnA));
+
+      final requestC = mockService.registeredResources[2];
+      expect(requestC.dependencies, contains(urnB));
+    });
+  });
+
   group('Resource fallback without Runtime', () {
     test('CustomResource uses mock URN when Runtime not initialized', () async {
       // Don't initialize Runtime
@@ -938,6 +1368,7 @@ void main() {
 /// A test resource that accepts an Output as input.
 class TestBucketWithOutputInput extends CustomResource {
   final Output<String> bucketNameOutput;
+  late final Output<String> arn;
 
   TestBucketWithOutputInput(
     String name, {
@@ -953,6 +1384,14 @@ class TestBucketWithOutputInput extends CustomResource {
   @override
   void processOutputs(Struct properties) {
     super.processOutputs(properties);
+    final arnValue = properties.fields['arn']?.stringValue ?? '';
+    // Output properties include the resource's URN as dependency
+    arn = Output.fromDataFuture(
+      urn.dataFuture.then((urnData) => OutputData.known(
+        arnValue,
+        dependencies: {...urnData.dependencies, urnData.value},
+      )),
+    );
   }
 }
 
@@ -1015,4 +1454,94 @@ class TestInnerComponent extends ComponentResource {
 class TestEmptyOutputsComponent extends ComponentResource {
   TestEmptyOutputsComponent(String name, {ResourceOptions? options})
       : super('mycompany:components:EmptyOutputs', name, options);
+}
+
+/// A test resource that accepts an Output as input with ResourceOptions support.
+class TestBucketWithOutputInputAndOptions extends CustomResource {
+  final Output<String> bucketNameOutput;
+
+  TestBucketWithOutputInputAndOptions(
+    String name, {
+    required this.bucketNameOutput,
+    ResourceOptions? options,
+  }) : super('aws:s3/bucket:Bucket', name, options);
+
+  @override
+  Map<String, Input<Object?>?> get inputs => {
+        'bucketName': Input.output(bucketNameOutput),
+      };
+
+  @override
+  void processOutputs(Struct properties) {
+    super.processOutputs(properties);
+  }
+}
+
+/// A test resource that accepts a map with Output values for tags.
+class TestBucketWithMapInput extends CustomResource {
+  final String bucketName;
+  final Map<String, dynamic> tags;
+
+  TestBucketWithMapInput(
+    String name, {
+    required this.bucketName,
+    required this.tags,
+    ResourceOptions? options,
+  }) : super('aws:s3/bucket:Bucket', name, options);
+
+  @override
+  Map<String, Input<Object?>?> get inputs => {
+        'bucketName': Input.value(bucketName),
+        'tags': Input.value(tags),
+      };
+
+  @override
+  void processOutputs(Struct properties) {
+    super.processOutputs(properties);
+  }
+}
+
+/// A test resource that accepts a list with Output values.
+class TestBucketWithListInput extends CustomResource {
+  final String bucketName;
+  final List<Output<String>> prefixes;
+
+  TestBucketWithListInput(
+    String name, {
+    required this.bucketName,
+    required this.prefixes,
+    ResourceOptions? options,
+  }) : super('aws:s3/bucket:Bucket', name, options);
+
+  @override
+  Map<String, Input<Object?>?> get inputs => {
+        'bucketName': Input.value(bucketName),
+        'prefixes': Input.value(prefixes),
+      };
+
+  @override
+  void processOutputs(Struct properties) {
+    super.processOutputs(properties);
+  }
+}
+
+/// A test resource that accepts another resource as input.
+class TestLogConfigResource extends CustomResource {
+  final CustomResource bucket;
+
+  TestLogConfigResource(
+    String name, {
+    required this.bucket,
+    ResourceOptions? options,
+  }) : super('myapp:LogConfig', name, options);
+
+  @override
+  Map<String, Input<Object?>?> get inputs => {
+        'bucket': Input.value(bucket),
+      };
+
+  @override
+  void processOutputs(Struct properties) {
+    super.processOutputs(properties);
+  }
 }
