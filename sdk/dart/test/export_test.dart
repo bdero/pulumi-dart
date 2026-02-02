@@ -59,5 +59,43 @@ void main() {
       expect(result['items'], isA<List>());
       expect(result['items'], ['item1', 'item2']);
     });
+
+    test('LanguageRuntimeServiceBase is accessible from pulumi.dart', () {
+      // The language host implementation needs LanguageRuntimeServiceBase
+      // to implement the language runtime gRPC service.
+
+      // Verify that the service base class is accessible
+      expect(LanguageRuntimeServiceBase, isNotNull);
+    });
+
+    test('Language runtime message types are accessible from pulumi.dart', () {
+      // The language host implementation needs access to all request/response
+      // message types for the language runtime service.
+
+      // Verify message types are accessible by creating instances
+      final runRequest = RunRequest(project: 'test', stack: 'dev');
+      expect(runRequest.project, 'test');
+      expect(runRequest.stack, 'dev');
+
+      final runResponse = RunResponse(error: '', bail: false);
+      expect(runResponse.error, '');
+      expect(runResponse.bail, false);
+
+      final programInfo = ProgramInfo(
+        rootDirectory: '/root',
+        programDirectory: '/root/src',
+        entryPoint: '.',
+      );
+      expect(programInfo.rootDirectory, '/root');
+      expect(programInfo.programDirectory, '/root/src');
+      expect(programInfo.entryPoint, '.');
+
+      final aboutResponse = AboutResponse(
+        executable: 'dart',
+        version: '3.0.0',
+      );
+      expect(aboutResponse.executable, 'dart');
+      expect(aboutResponse.version, '3.0.0');
+    });
   });
 }

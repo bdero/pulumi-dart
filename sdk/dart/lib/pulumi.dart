@@ -48,3 +48,5 @@ export 'src/proto/pulumi/alias.pb.dart' hide Alias;
 export 'src/proto/pulumi/callback.pb.dart';
 export 'src/proto/pulumi/callback.pbgrpc.dart';
 export 'src/proto/pulumi/source.pb.dart';
+export 'src/proto/pulumi/language.pb.dart';
+export 'src/proto/pulumi/language.pbgrpc.dart';
