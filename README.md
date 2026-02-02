@@ -30,33 +30,97 @@ pulumi-dart/
 ## Prerequisites
 
 - Dart SDK 3.0.0+
+- Go 1.21+ (for building the language host)
 - protoc (Protocol Buffers compiler)
 - protoc-gen-dart (`dart pub global activate protoc_plugin`)
 
 ## Building
 
+### Quick Start with Make
+
+The project includes a Makefile for common development tasks:
+
+```bash
+# Build and test everything
+make
+
+# Build the language host for current platform
+make build
+
+# Build for all supported platforms
+make build-all
+
+# Run all tests
+make test
+
+# Install dependencies
+make install-deps
+
+# See all available commands
+make help
+```
+
+### Build Script for Cross-Platform Builds
+
+Use the build script for more control over cross-compilation:
+
+```bash
+# Build for current platform
+./scripts/build.sh
+
+# Build for all platforms
+./scripts/build.sh all
+
+# Build for specific platforms
+./scripts/build.sh linux-amd64 darwin-arm64
+
+# Build with version string
+./scripts/build.sh all -v v0.1.0
+
+# See help
+./scripts/build.sh --help
+```
+
+### Manual Build
+
+For direct builds without the helper scripts:
+
+```bash
+cd cmd/pulumi-language-dart
+go build -o pulumi-language-dart .
+```
+
+Cross-compile for other platforms:
+
+```bash
+# Linux AMD64
+GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags="-s -w" -o pulumi-language-dart .
+
+# macOS ARM64 (Apple Silicon)
+GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -ldflags="-s -w" -o pulumi-language-dart .
+```
+
 ### Install Dependencies
 
 ```bash
-cd sdk/dart
-dart pub get
+# Using Make (recommended)
+make install-deps
+
+# Or manually
+cd sdk/dart && dart pub get
+cd tests/integration && dart pub get
+cd cmd/pulumi-language-dart && go mod download
+cd pkg/codegen/dart && go mod download
 ```
 
 ### Regenerate Proto Files
 
 ```bash
-# On Windows (Git Bash/MSYS2)
-export PATH="$PATH:$LOCALAPPDATA/Pub/Cache/bin"
-protoc --plugin=protoc-gen-dart="$LOCALAPPDATA/Pub/Cache/bin/protoc-gen-dart.bat" \
-    --dart_out=grpc:sdk/dart/lib/src/proto \
-    -Iproto \
-    proto/pulumi/*.proto
+# Using Make (recommended)
+make generate-proto
 
-# On macOS/Linux
-export PATH="$PATH:$HOME/.pub-cache/bin"
-protoc --dart_out=grpc:sdk/dart/lib/src/proto \
-    -Iproto \
-    proto/pulumi/*.proto
+# Or using the script directly
+./scripts/generate_proto.sh
 ```
 
 ## Testing
@@ -131,6 +195,13 @@ The Dart language host integrates with `pulumi package gen-sdk` to generate Dart
 ### Building the Language Host
 
 ```bash
+# Using Make
+make build
+
+# Or using the build script
+./scripts/build.sh
+
+# Or manually
 cd cmd/pulumi-language-dart
 go build -o pulumi-language-dart .
 ```
@@ -184,6 +255,21 @@ This project uses GitHub Actions for automated releases. To create a new release
 1. Tag the commit with a version: `git tag v0.1.0`
 2. Push the tag: `git push origin v0.1.0`
 3. GitHub Actions will automatically build binaries for all platforms and create a release
+
+### Local Release Build
+
+To create release archives locally (for testing or manual distribution):
+
+```bash
+# Create archives for all platforms with version
+make dist VERSION=v0.1.0
+
+# Or using the build script
+./scripts/build.sh all -v v0.1.0
+
+# Archives are created in the dist/ directory
+ls dist/*.tar.gz
+```
 
 ## License
 
